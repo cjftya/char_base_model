@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import struct
 from dataclasses import dataclass
 from pathlib import Path
@@ -48,10 +49,9 @@ def png_dimensions(path: Path) -> tuple[int, int]:
 def _ratio(value: object, key: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ReferenceError(f"{key} must be a number between 0 and 1")
-    ratio = float(value)
-    if not 0 <= ratio <= 1:
+    if not 0 <= value <= 1:
         raise ReferenceError(f"{key} must be between 0 and 1")
-    return ratio
+    return float(value)
 
 
 def load_references(config_path: Path) -> tuple[dict, dict[str, ReferenceView]]:
@@ -60,7 +60,7 @@ def load_references(config_path: Path) -> tuple[dict, dict[str, ReferenceView]]:
     root = config_path.parent.parent
     try:
         config = json.loads(config_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise ReferenceError(f"Cannot load config {config_path}: {exc}") from exc
     if not isinstance(config, dict):
         raise ReferenceError("Config root must be an object")
@@ -69,8 +69,8 @@ def load_references(config_path: Path) -> tuple[dict, dict[str, ReferenceView]]:
     distance = config.get("plane_offset_m")
     opacity = config.get("opacity")
     for key, value in (("character_height_m", height), ("plane_offset_m", distance)):
-        if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
-            raise ReferenceError(f"{key} must be positive")
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 < value <= 1e6:
+            raise ReferenceError(f"{key} must be positive and fit in Blender coordinates")
     if isinstance(opacity, bool) or not isinstance(opacity, (int, float)) or not 0 < opacity <= 1:
         raise ReferenceError("opacity must be greater than 0 and at most 1")
 
@@ -79,18 +79,27 @@ def load_references(config_path: Path) -> tuple[dict, dict[str, ReferenceView]]:
         raise ReferenceError("images must contain exactly: front, back, left, right")
 
     views: dict[str, ReferenceView] = {}
+    seen_paths = set()
     for name in VIEWS:
         spec = images[name]
         if not isinstance(spec, dict):
             raise ReferenceError(f"images.{name} must be an object")
         filename = spec.get("path")
-        if not isinstance(filename, str) or not filename.endswith(".png"):
+        if not isinstance(filename, str) or Path(filename).suffix.lower() != ".png":
             raise ReferenceError(f"images.{name}.path must be a .png path")
-        path = (root / filename).resolve()
+        if Path(filename).is_absolute():
+            raise ReferenceError(f"Path must be relative to the project root: {filename}")
+        try:
+            path = (root / filename).resolve()
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise ReferenceError(f"Cannot resolve {name} image path: {exc}") from exc
         if not path.is_relative_to(root):
             raise ReferenceError(f"Path must be inside project root: {filename}")
         if not path.is_file():
             raise ReferenceError(f"Missing {name} image: {path}")
+        if path in seen_paths:
+            raise ReferenceError(f"Each view needs a separate PNG file: {path}")
+        seen_paths.add(path)
         width_px, height_px = png_dimensions(path)
         head_y = _ratio(spec.get("head_y"), f"images.{name}.head_y")
         foot_y = _ratio(spec.get("foot_y"), f"images.{name}.foot_y")
@@ -100,6 +109,9 @@ def load_references(config_path: Path) -> tuple[dict, dict[str, ReferenceView]]:
         scale = float(height) / ((foot_y - head_y) * height_px)
         world_width = width_px * scale
         world_height = height_px * scale
+        if any(not math.isfinite(size) or not 1e-6 <= size <= 1e6
+               for size in (world_width, world_height)):
+            raise ReferenceError(f"images.{name}: calibrated size outside supported range")
         views[name] = ReferenceView(
             name=name, path=path, width_px=width_px, height_px=height_px,
             head_y=head_y, foot_y=foot_y, center_x=center_x,

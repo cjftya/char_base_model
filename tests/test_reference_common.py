@@ -70,6 +70,44 @@ class ReferenceTests(unittest.TestCase):
         _, views = self.load()
         self.assertAlmostEqual(views["back"].offset_x_m, 0.125)
 
+    def test_calibrated_portrait_and_landscape_anchors(self):
+        for name, width, height in (("front", 200, 400), ("left", 640, 400)):
+            png(self.root / "references" / f"{name}.png", width, height)
+            self.data["images"][name].update(head_y=0.2, foot_y=0.7, center_x=0.25)
+        config, views = self.load()
+        for view in (views["front"], views["left"]):
+            crown = view.offset_z_m + (0.5 - view.head_y) * view.world_height_m
+            sole = view.offset_z_m + (0.5 - view.foot_y) * view.world_height_m
+            axis = view.offset_x_m + (view.center_x - 0.5) * view.world_width_m
+            self.assertAlmostEqual(crown, config["character_height_m"])
+            self.assertAlmostEqual(sole, 0)
+            self.assertAlmostEqual(axis, 0)
+            self.assertAlmostEqual(view.world_width_m / view.world_height_m,
+                                   view.width_px / view.height_px)
+
+    def test_bad_extension_is_rejected(self):
+        self.data["images"]["right"]["path"] = "references/right.jpg"
+        with self.assertRaisesRegex(ReferenceError, r"must be a \.png"):
+            self.load()
+
+    def test_duplicate_path_is_rejected(self):
+        self.data["images"]["right"]["path"] = "references/left.png"
+        with self.assertRaisesRegex(ReferenceError, "separate PNG"):
+            self.load()
+
+    def test_unreadable_png_is_rejected(self):
+        from unittest.mock import patch
+
+        with patch.object(Path, "open", side_effect=PermissionError("denied")):
+            from reference_common import png_dimensions
+            with self.assertRaisesRegex(ReferenceError, "Cannot read"):
+                png_dimensions(self.root / "references/front.png")
+
+    def test_non_finite_height_is_rejected(self):
+        self.data["character_height_m"] = float("nan")
+        with self.assertRaisesRegex(ReferenceError, "character_height_m"):
+            self.load()
+
 
 if __name__ == "__main__":
     unittest.main()
