@@ -1,6 +1,6 @@
 # char_base_model
 
-Phase 0 Agent Skill for preparing four orthographic character references in Blender.
+Agent Skill for Phase 0 orthographic reference setup and Phase 1 measured body/head base-mesh construction in Blender.
 
 ## Run through Blender MCP
 
@@ -43,3 +43,34 @@ python -m unittest discover -s tests -v
 ```
 
 Tests cover input headers/calibration, session intake, destination resolution, and scene/output safety with mocked Blender APIs. Actual viewport display, image decoding in Blender, UI locking, and reopen persistence require Blender and real images. See [future role contracts](docs/workflow.md) for later phases.
+
+## Phase 1: reference-driven base meshes
+
+After the existing Phase 0 visual/reopen checks pass, ask the agent to continue
+with Phase 1. Read the [modeling workflow](skills/char-base-model/references/phase1-modeling.md),
+[review rules](skills/char-base-model/references/phase1-review.md) and
+[data contracts](contracts/phase1-format.md).
+
+The existing Blender MCP invokes these modules on its own host:
+
+- `phase1_analysis.py`: calibrated image-to-world measurements and per-view errors.
+- `phase1_contract.py`: immutable source fingerprints, measured contracts, exact
+  output-directory override, ordered gates and bounded rework.
+- `phase1_geometry.py`: actual connected ring/branch body and integrated skull,
+  eye/mouth/ear feature geometry; closed-surface validation and optional mask metrics.
+- `phase1_blender.py`: source-safe working copies, Body/Head builders, recorded
+  local vertex rework, BMesh normal refinement, six renders, four calibrated
+  overlays, read-only mesh statistics, evidence binding and gated final save.
+
+The agent measures the current images and supplies profiles/landmarks; there is
+no automatic image-to-anatomy neural model or generic proportion substitution.
+Shape review precedes loop refinement. Head and body remain separate closed
+meshes with a shared, visually reviewed neck contract. This is a base modeling
+pipeline, not automated rig-ready retopology.
+
+Unit tests exercise synthetic geometry, contracts, input preservation and gates.
+They cannot establish resemblance to a real character. Blender/MCP execution and
+likeness remain unverified until a connected host executes a real session.
+See [implementation validation](docs/phase1-validation.md) for current evidence
+and limitations. No new MCP server, rigging, hair, clothing, materials or animation
+is introduced by Phase 1.

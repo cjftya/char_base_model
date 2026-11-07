@@ -1,0 +1,250 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "phase1.schema.json",
+  "title": "Phase 1 measured model contract (additional geometry checks in Python)",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "height_m",
+    "axes",
+    "neck",
+    "body",
+    "head"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "height_m": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "exclusiveMaximum": 1000000.0
+    },
+    "axes": {
+      "const": {
+        "up": "+Z",
+        "front": "-Y",
+        "sole_z": 0
+      }
+    },
+    "neck": {
+      "type": "object",
+      "required": [
+        "center",
+        "width_m",
+        "depth_m"
+      ],
+      "properties": {
+        "center": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "width_m": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "depth_m": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      }
+    },
+    "body": {
+      "type": "object",
+      "required": [
+        "torso",
+        "limbs",
+        "bounds",
+        "source_notes"
+      ],
+      "properties": {
+        "bounds": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 2,
+            "maxItems": 2
+          }
+        },
+        "source_notes": {
+          "type": "string",
+          "minLength": 1
+        },
+        "torso": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 3,
+              "maxItems": 3
+            },
+            "minItems": 4
+          },
+          "minItems": 2
+        },
+        "limbs": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {
+            "type": "object",
+            "required": [
+              "region",
+              "patch_faces",
+              "rings"
+            ],
+            "properties": {
+              "region": {
+                "type": "string"
+              },
+              "patch_faces": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "minItems": 1,
+                "uniqueItems": true
+              },
+              "rings": {
+                "type": "array",
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "number"
+                    },
+                    "minItems": 3,
+                    "maxItems": 3
+                  },
+                  "minItems": 4
+                },
+                "minItems": 2
+              }
+            }
+          }
+        }
+      }
+    },
+    "head": {
+      "type": "object",
+      "required": [
+        "rings",
+        "features",
+        "nose_vertices",
+        "nose_base",
+        "bounds",
+        "source_notes"
+      ],
+      "properties": {
+        "bounds": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 2,
+            "maxItems": 2
+          }
+        },
+        "source_notes": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rings": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 3,
+              "maxItems": 3
+            },
+            "minItems": 4
+          },
+          "minItems": 2
+        },
+        "features": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "items": {
+            "type": "object",
+            "required": [
+              "region",
+              "patch_faces",
+              "rings"
+            ],
+            "properties": {
+              "region": {
+                "type": "string"
+              },
+              "patch_faces": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "minItems": 1,
+                "uniqueItems": true
+              },
+              "rings": {
+                "type": "array",
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "number"
+                    },
+                    "minItems": 3,
+                    "maxItems": 3
+                  },
+                  "minItems": 4
+                },
+                "minItems": 2
+              }
+            }
+          }
+        },
+        "nose_vertices": {
+          "type": "array",
+          "minItems": 3,
+          "uniqueItems": true,
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "nose_base": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "minItems": 3,
+          "maxItems": 3
+        }
+      }
+    }
+  }
+}
