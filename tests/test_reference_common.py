@@ -86,13 +86,13 @@ class ReferenceTests(unittest.TestCase):
                                    view.width_px / view.height_px)
 
     def test_bad_extension_is_rejected(self):
-        self.data["images"]["right"]["path"] = "references/right.jpg"
+        self.data["images"]["right"]["path"] = "references/right.webp"
         with self.assertRaisesRegex(ReferenceError, r"must be a \.png"):
             self.load()
 
     def test_duplicate_path_is_rejected(self):
         self.data["images"]["right"]["path"] = "references/left.png"
-        with self.assertRaisesRegex(ReferenceError, "separate PNG"):
+        with self.assertRaisesRegex(ReferenceError, "separate PNG/JPEG"):
             self.load()
 
     def test_unreadable_png_is_rejected(self):

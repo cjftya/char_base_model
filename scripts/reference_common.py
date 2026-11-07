@@ -46,6 +46,48 @@ def png_dimensions(path: Path) -> tuple[int, int]:
     return width, height
 
 
+def image_dimensions(path: Path) -> tuple[int, int]:
+    """Read PNG or JPEG dimensions. Blender must still decode the full image."""
+    suffix = path.suffix.lower()
+    if suffix == ".png":
+        return png_dimensions(path)
+    if suffix not in (".jpg", ".jpeg"):
+        raise ReferenceError(f"Use PNG, JPG, or JPEG: {path}")
+    try:
+        with path.open("rb") as image:
+            if image.read(2) != b"\xff\xd8":
+                raise ReferenceError(f"Invalid JPEG signature: {path}")
+            while True:
+                if image.read(1) != b"\xff":
+                    break
+                marker = image.read(1)
+                while marker == b"\xff":
+                    marker = image.read(1)
+                if marker in (b"", b"\xd9", b"\xda"):
+                    break
+                if marker == b"\x01" or 0xD0 <= marker[0] <= 0xD7:
+                    continue
+                length_bytes = image.read(2)
+                if len(length_bytes) != 2:
+                    break
+                length = int.from_bytes(length_bytes, "big")
+                if length < 2:
+                    break
+                if marker[0] in (0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7,
+                                  0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF):
+                    frame = image.read(5)
+                    if length < 8 or len(frame) != 5:
+                        break
+                    height, width = struct.unpack(">HH", frame[1:5])
+                    if width and height:
+                        return width, height
+                    break
+                image.seek(length - 2, 1)
+    except OSError as exc:
+        raise ReferenceError(f"Cannot read {path}: {exc}") from exc
+    raise ReferenceError(f"Invalid JPEG header; export the original again: {path}")
+
+
 def _ratio(value: object, key: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ReferenceError(f"{key} must be a number between 0 and 1")
@@ -85,8 +127,8 @@ def load_references(config_path: Path) -> tuple[dict, dict[str, ReferenceView]]:
         if not isinstance(spec, dict):
             raise ReferenceError(f"images.{name} must be an object")
         filename = spec.get("path")
-        if not isinstance(filename, str) or Path(filename).suffix.lower() != ".png":
-            raise ReferenceError(f"images.{name}.path must be a .png path")
+        if not isinstance(filename, str) or Path(filename).suffix.lower() not in (".png", ".jpg", ".jpeg"):
+            raise ReferenceError(f"images.{name}.path must be a .png, .jpg, or .jpeg path")
         if Path(filename).is_absolute():
             raise ReferenceError(f"Path must be relative to the project root: {filename}")
         try:
@@ -98,9 +140,9 @@ def load_references(config_path: Path) -> tuple[dict, dict[str, ReferenceView]]:
         if not path.is_file():
             raise ReferenceError(f"Missing {name} image: {path}")
         if path in seen_paths:
-            raise ReferenceError(f"Each view needs a separate PNG file: {path}")
+            raise ReferenceError(f"Each view needs a separate PNG/JPEG file: {path}")
         seen_paths.add(path)
-        width_px, height_px = png_dimensions(path)
+        width_px, height_px = image_dimensions(path)
         head_y = _ratio(spec.get("head_y"), f"images.{name}.head_y")
         foot_y = _ratio(spec.get("foot_y"), f"images.{name}.foot_y")
         center_x = _ratio(spec.get("center_x"), f"images.{name}.center_x")

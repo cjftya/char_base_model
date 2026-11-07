@@ -4,23 +4,37 @@ Phase 0 Agent Skill for preparing four orthographic character references in Blen
 
 ## Run through Blender MCP
 
-1. Start Blender, open the intended scene, and confirm your CLI agent can query it through its existing Blender MCP connection. The workflow needs scene inspection and Python execution. Viewport inspection is required for final review.
-2. Keep the checkout intact. Register the [skill directory](skills/char-base-model) using your CLI's project skill mechanism, or ask the agent to load `skills/char-base-model/SKILL.md` directly from the checkout. Invoke it by name with a request such as “Use char-base-model to prepare Phase 0 in the open Blender scene.”
-3. Place `front.png`, `back.png`, `left.png`, and `right.png` under `references/` on the Blender host. Set the character height and each image's anchors in `config/reference_setup.json`. See the [input specification](skills/char-base-model/references/input-spec.md).
-4. Follow the [MCP workflow](skills/char-base-model/references/workflow.md). It includes host-side preflight, setup, and four-view review. If the CLI can access the same checkout, run `python scripts/check_references.py` there first for a quick header and anchor check.
-5. Inspect the `.blend` copy and its sibling `.manifest.json`. References are packed, and the manifest records the anchors, image dimensions, calibrated size, and scene object names. Treat the result as `UNVERIFIED` until the four-view and reopen checks pass.
+1. Start Blender and connect your CLI through its existing Blender MCP. The skill checks the scene and available capabilities.
+2. Keep this checkout intact and register [skills/char-base-model](skills/char-base-model) using your CLI's project skill mechanism, or ask the CLI to load its `SKILL.md` directly.
+3. Give the agent a folder or attach four files named `front`, `back`, `left`, `right`. Each may use `.png`, `.jpg`, or `.jpeg`. Example request — “Use char-base-model with these four images. Save the work under /home/me/models.”
+4. The skill copies the inputs into `char_base_YYYYMMDD_HHMMSS` under your specified destination. When omitted, it uses the Blender host's Windows or Linux Downloads directory. Each run contains its references, configuration, Blender copy, and manifest. The skill/harness stays in the checkout.
+5. The agent inspects images and calibrates the run-local anchors, then prepares the open Blender scene through MCP. Inputs below 512px on the short side require larger originals. Differing resolutions produce guidance for individual anchor calibration. See the [input rules](skills/char-base-model/references/input-spec.md).
+6. Inspect all four views and reopen the saved copy to complete review. Results stay `UNVERIFIED` until the [review checklist](skills/char-base-model/references/workflow.md) passes.
 
-## Optional background Blender
+If images are inaccessible to Blender, the agent guides you to save them on its host. Missing views, unsuitable images, or unavailable MCP capabilities produce guidance for the affected input or connection.
 
-Run from the repository root with Blender 4.x. This starts an isolated Blender process and uses the same Phase 0 implementation.
+## Helpers and optional background Blender
+
+The agent normally invokes these scripts on the Blender host through MCP. For standalone intake, Python 3.11+ uses only the standard library:
+
+```bash
+python scripts/prepare_session.py /path/to/input-images
+python scripts/prepare_session.py /path/to/input-images --destination /path/to/work-parent
+python scripts/prepare_session.py /path/front.jpg /path/back.png /path/left.jpeg /path/right.jpg
+```
+
+On Windows, use native paths, quoted when needed. The helper resolves redirected Windows Downloads and Linux XDG Downloads. An explicit destination takes priority and must already exist. The session's initial anchors need actual image inspection before `anchors_reviewed` is set to true.
+
+An optional isolated Blender 4.x background process can use the same prepared session config:
 
 ```bash
 blender --background --factory-startup --python-exit-code 2 \
   --python scripts/setup_references.py -- \
-  --config config/reference_setup.json --output output/reference_stage.blend
+  --config /path/char_base_YYYYMMDD_HHMMSS/config/reference_setup.json \
+  --output /path/char_base_YYYYMMDD_HHMMSS/reference_stage.blend
 ```
 
-Use a fresh output path. The optional background `--overwrite` flag replaces an earlier output and its manifest when explicitly requested. The currently open source file is protected. Open the saved copy and use the same visual checklist.
+Use a fresh output filename when retrying a save. The background `--overwrite` flag explicitly replaces an earlier output and manifest. The currently open source file is protected.
 
 ## Development
 
@@ -28,4 +42,4 @@ Use a fresh output path. The optional background `--overwrite` flag replaces an 
 python -m unittest discover -s tests -v
 ```
 
-The standard-library tests cover calibration, input validation, and scene/output safety with mocked Blender APIs. Real viewport display, UI locking, and image persistence need a Blender session and real inputs. See [future role contracts](docs/workflow.md) for later phases.
+Tests cover input headers/calibration, session intake, destination resolution, and scene/output safety with mocked Blender APIs. Actual viewport display, image decoding in Blender, UI locking, and reopen persistence require Blender and real images. See [future role contracts](docs/workflow.md) for later phases.

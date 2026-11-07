@@ -19,11 +19,11 @@ def main() -> int:
     except ReferenceError as exc:
         print(f"ERROR: {exc}")
         return 2
-    print(f"PASS: all 4 PNG files found; model height = {config['character_height_m']} m")
+    print(f"PASS: all 4 reference files found; model height = {config['character_height_m']} m")
     for name, view in views.items():
         print(f"  {name:5}: {view.width_px}x{view.height_px} px, "
               f"reference plane = {view.world_width_m:.3f}x{view.world_height_m:.3f} m")
-    print("Note: PNG header validation does not confirm visual consistency or image contents.")
+    print("Note: Image header validation does not confirm visual consistency or image contents.")
     return 0
 
 

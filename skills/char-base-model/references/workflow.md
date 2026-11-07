@@ -2,29 +2,52 @@
 
 ## Connect and check
 
-Discover the connected tools by capability. Use scene inspection or read-only Python to get the Blender version, current scene name and file path. Confirm Python execution is available and identify any viewport capture tool. If execution is unavailable, report the block and point to the optional offline command in the repository README.
+Discover the connected tools by capability. Use scene inspection or read-only Python to get the Blender version, current scene name/file path, host OS, and home path. Confirm Python execution and identify any viewport capture tool. If unavailable, explain the failing capability and guide the user to open Blender, enable/start the installed MCP add-on's connection, check their CLI's MCP configuration, reconnect, and repeat the scene query. Use the installed add-on's actual settings. Keep this MCP workflow blocked until it works.
 
-Place the repository and four PNGs where Blender can read them. A CLI-host preflight is useful when files are shared. Always check on the Blender host too. Use absolute Blender-host paths in the following Python snippets. Use the host's path syntax and safely encode any paths provided by the user.
+Keep the repository/harness separate from run data. Transfer folder inputs or attachments to the Blender host through an available supported transfer mechanism. If file transfer is unavailable, ask the user to save the four named files on that host and provide the folder path. Explain which files or paths are inaccessible. Never treat cloud paths as Blender-host paths.
 
-## Run in the active scene
+## Create the run directory
 
-Use the discovered Python execution tool. First run the preflight with this snippet:
+Call the helper below through the discovered Python tool. Use absolute paths in the Blender host's native syntax. The helper accepts either a folder or four paths and supports PNG/JPG/JPEG. Safely encode paths in generated Python.
 
 ```python
+import json
+import runpy
 import sys
 from pathlib import Path
 
 root = Path("/absolute/blender-host/char_base_model")
 sys.path.insert(0, str(root / "scripts"))
 try:
-    from reference_common import load_references
-    config, views = load_references(root / "config/reference_setup.json")
-    print({name: (view.width_px, view.height_px) for name, view in views.items()})
+    intake = runpy.run_path(str(root / "scripts/prepare_session.py"))
+    session = intake["prepare_session"](
+        ["/absolute/blender-host/input-images"],
+        # destination="/absolute/user-requested/location",
+    )
+    print(json.dumps(session))
 finally:
     sys.path.pop(0)
 ```
 
-After that passes, run the setup. Substitute a fresh output path. The script repeats the file checks and decodes and packs all four images before replacing any existing references.
+Use the explicitly requested destination as the parent directory when present. Resolve “here” against the directory the user identified on the Blender host. If omitted, the helper resolves Windows Downloads using its redirected user-folder registry value, or Linux Downloads using `XDG_CONFIG_HOME/user-dirs.dirs` with `XDG_DOWNLOAD_DIR`. Linux falls back to an existing `~/Downloads`. If unavailable or disabled, ask for the actual destination. A custom destination must already exist and be accessible on the Blender host. Use `destination=...` to supply it.
+
+A run uses host-local time and creates this folder under that parent:
+
+```text
+char_base_YYYYMMDD_HHMMSS/
+├── references/                   four copied source images
+├── config/reference_setup.json   per-run anchors and settings
+├── reference_stage.blend
+└── reference_stage.manifest.json
+```
+
+The timestamp directory is created exclusively. If another run already occupies the same second, retry with a fresh timestamp. All originals remain in their input location. Missing files, unsupported formats, duplicate directions, and images below the intake resolution threshold block staging with a correction message. Inconsistent resolutions produce guidance. Present that guidance to the user before inspecting the images.
+
+## Calibrate and set up the active scene
+
+Inspect the staged images and update their anchors and `anchors_reviewed` in the session config. The agent handles the configuration. Ask the user for clarification only when the image itself or an unavailable inspection capability leaves the anchors or direction ambiguous. Check actual character proportions and pose even if all pixel dimensions match.
+
+After calibration, execute this through the discovered Python tool using the paths returned above:
 
 ```python
 import json
@@ -37,15 +60,15 @@ sys.path.insert(0, str(root / "scripts"))
 try:
     setup = runpy.run_path(str(root / "scripts/setup_references.py"))
     manifest = setup["prepare_phase0"](
-        root / "config/reference_setup.json",
-        root / "output/reference_stage.blend",
+        "/absolute/char_base_YYYYMMDD_HHMMSS/config/reference_setup.json",
+        "/absolute/char_base_YYYYMMDD_HHMMSS/reference_stage.blend",
     )
     print(json.dumps(manifest))
 finally:
     sys.path.pop(0)
 ```
 
-The setup keeps Body and Head content and adds or refreshes owned references and cameras. If a reserved name is occupied by unrelated content or a managed ID is shared, report the collision. The script saves a separate copy and a sibling manifest. Use a fresh output filename on each MCP rerun. If saving fails after scene setup, the scene may already contain the new references. Retry with a fresh writable destination after resolving the error.
+The setup rechecks host paths and decodes/packs all four images before replacing existing references. Report decode failures and ask the user to re-export or replace the affected source. Reserved names occupied by unrelated or shared content block setup. Use a fresh output path on a save retry. If saving fails after setup, the active scene may already contain updated references.
 
 ## Review and finish
 

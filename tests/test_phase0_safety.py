@@ -149,10 +149,26 @@ class Phase0SafetyTests(unittest.TestCase):
         image = MagicMock(size=(100, 200), has_data=True, packed_file=object())
         self.data.images.load.side_effect = [image, RuntimeError("cannot decode")]
         view = SimpleNamespace(path=Path("/blender/front.png"), width_px=100, height_px=200)
-        with self.assertRaisesRegex(ReferenceError, "cannot decode/pack back PNG"):
+        with self.assertRaisesRegex(ReferenceError, "cannot decode/pack back image"):
             self.setup["build"]({}, {"front": view, "back": view})
         self.data.images.remove.assert_called_once_with(image, do_unlink=True)
         self.assertIs(self.data.objects["REF_FRONT"], ref)
+
+    def test_unreviewed_session_anchors_block_before_scene_changes(self):
+        prepare = self.setup["prepare_phase0"]
+        self.data.filepath = ""
+        with tempfile.TemporaryDirectory() as temp:
+            output = Path(temp) / "reference_stage.blend"
+            config = Path(temp) / "config/reference_setup.json"
+            build = Mock()
+            with patch.dict(prepare.__globals__, {
+                "load_references": Mock(return_value=({"anchors_reviewed": False}, {})),
+                "build": build,
+            }):
+                with self.assertRaisesRegex(ReferenceError, "calibrate their anchors"):
+                    prepare(config, output)
+            build.assert_not_called()
+            self.assertFalse(output.exists())
 
     def test_existing_output_and_source_are_protected(self):
         with tempfile.TemporaryDirectory() as temp:

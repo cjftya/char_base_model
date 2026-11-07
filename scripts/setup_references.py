@@ -123,7 +123,7 @@ def build(config, views):
                 if image.packed_file is None:
                     raise ReferenceError("image could not be packed")
             except (OSError, RuntimeError, ReferenceError) as exc:
-                raise ReferenceError(f"Blender cannot decode/pack {name} PNG {view.path}: {exc}") from exc
+                raise ReferenceError(f"Blender cannot decode/pack {name} image {view.path}: {exc}") from exc
             image[OWNER] = name
             images[name] = image
 
@@ -212,12 +212,15 @@ def prepare_phase0(config_path, output_path, *, overwrite=False):
     output = output.resolve()
     manifest_path = check_output(output, bpy.data.filepath, overwrite)
     config, views = load_references(Path(config_path))
+    if config.get("anchors_reviewed") is False:
+        raise ReferenceError("Inspect all four images and calibrate their anchors before setup")
     output.parent.mkdir(parents=True, exist_ok=True)
     with TemporaryDirectory(dir=output.parent, prefix=".phase0-") as temp:
         temp_blend = Path(temp).with_suffix(".blend")
         temp_manifest = Path(temp) / manifest_path.name
         manifest = build(config, views)
         manifest["blend_file"] = output.name
+        manifest["input_guidance"] = config.get("input_guidance", [])
         temp_manifest.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
         try:
             # The staging file is a sibling of the final output so Blender remaps
