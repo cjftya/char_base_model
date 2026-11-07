@@ -82,7 +82,7 @@ def require_passes(review, checks):
         raise ReferenceError("Required review checks are not PASS: " + ", ".join(checks))
 
 
-def validate_contract(contract, landmarks, sources):
+def validate_contract(contract, landmarks, sources, *, require_head=True):
     if contract.get("schema_version") != 1 or landmarks.get("schema_version") != 1:
         raise ReferenceError("Unsupported contract/landmark schema")
     height = contract.get("height_m")
@@ -112,7 +112,8 @@ def validate_contract(contract, landmarks, sources):
     for key in ("width_m", "depth_m"):
         if type(neck.get(key)) not in (int, float) or not 0 < neck[key] <= height:
             raise ReferenceError("Record measured neck width and depth")
-    for key in ("body", "head"):
+    regions = ("body", "head") if require_head or "head" in contract else ("body",)
+    for key in regions:
         spec = contract.get(key)
         if not isinstance(spec, dict) or not isinstance(spec.get("source_notes"), str) or not spec["source_notes"]:
             raise ReferenceError(f"Record measured profiles and uncertainty for {key}")
@@ -122,7 +123,8 @@ def validate_contract(contract, landmarks, sources):
             or not b[0] < b[1] for b in bounds
         ):
             raise ReferenceError(f"Define {key} XYZ working bounds")
-    for key, mesh in (("body", body_mesh(contract["body"])), ("head", head_mesh(contract["head"]))):
+    for key in regions:
+        mesh = (body_mesh if key == "body" else head_mesh)(contract[key])
         stats = mesh_stats(mesh)
         if stats["invalid_faces"] or stats["isolated_vertices"] or stats["boundary_edges"] or stats["nonmanifold_edges"]:
             raise ReferenceError(f"{key} contract does not form a closed valid base mesh: {stats}")

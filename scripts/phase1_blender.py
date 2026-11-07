@@ -15,6 +15,8 @@ import bmesh
 from mathutils import Vector
 from phase1_render import reference_overlay
 from phase1_evidence import review_context, validate_evidence
+from phase1_checkpoint import publish, materialize, checkpoint_path
+from phase1_regions import capture, resolve
 from phase1_workflow import BUILD_START, BLOCKOUT, REVIEW_NEXT
 
 from phase1_contract import (load, write_new, ensure_json, replace_json, digest, verify_sources,
@@ -65,6 +67,12 @@ def context(session):
     if Path(bpy.data.filepath).resolve() != session / "phase1_working.blend":
         raise ReferenceError("Open the Phase 1 working copy through MCP before modeling")
     state = load(session / "state.json")
+    if not state.get("checkpoint"):
+        raise ReferenceError("Initialize a checkpoint-backed session before continuing")
+    if state.get("checkpoint"):
+        checkpoint_path(session, state)
+        if bpy.context.scene.get("p1_generation") != state["checkpoint"]["file"]:
+            raise ReferenceError("Scene is not the committed generation; run recover_working")
     if state["status"] != "ACTIVE":
         raise ReferenceError(f"Session halted: {state['status']}")
     current = snapshot_phase0()
@@ -92,7 +100,56 @@ def context(session):
         for filename, key in (("model_contract.json", "contract_sha256"), ("landmarks.json", "landmarks_sha256")):
             if digest(session / filename) != state[key]:
                 raise ReferenceError("Contract changed; replan instead of silently changing approved regions")
+    if state.get("head_spec_sha256") and digest(session / "head_spec.json") != state["head_spec_sha256"]:
+        raise ReferenceError("Accepted head specification changed")
     return session, state
+
+
+def commit_model(session, previous, candidate):
+    """Commit a model/state pair. Derived working file can be recovered later."""
+    def save_generation(path):
+        bpy.context.scene["p1_generation"] = path.name
+        save_copy(path)
+    return publish(session, candidate, save_generation, expected_state=previous)
+
+
+def recover_working(session, *, discard_unsaved=False):
+    """Explicit recovery; never silently discard unsaved Blender edits."""
+    session = Path(session).resolve()
+    verify_sources(session)
+    if (session / ".checkpoint.lock").exists():
+        raise ReferenceError("Confirm no writer is running and remove the interrupted publication lock before recovery")
+    if bpy.data.is_dirty and not discard_unsaved:
+        raise ReferenceError("Preserve unsaved edits or explicitly allow discarding them")
+    state = load(session / "state.json")
+    working = materialize(session, state)
+    bpy.ops.wm.open_mainfile(filepath=str(working))
+    if state["state"] == "PHASE1_COMPLETE":
+        materialize(session, state, "phase1_final.blend")
+    return state
+
+
+def accept_head(session, head_path):
+    session, state = context(session)
+    if state["state"] != "BODY_SHAPE_REVIEW":
+        raise ReferenceError("Accept head details after the body shape review")
+    contract = load(session / "model_contract.json")
+    if "head" in contract:
+        raise ReferenceError("This legacy contract already includes head details")
+    spec = load(head_path)
+    validate_contract({**contract, "head": spec}, load(session / "landmarks.json"), state["sources"])
+    ensure_json(session / "head_spec.json", spec)
+    candidate = dict(state, head_spec_sha256=digest(session / "head_spec.json"))
+    return commit_model(session, state, candidate)
+
+
+def region_spec(session, state, region):
+    contract = load(session / "model_contract.json")
+    if region == "head" and "head" not in contract:
+        if not state.get("head_spec_sha256"):
+            raise ReferenceError("Accept measured head details after the body review first")
+        return load(session / "head_spec.json")
+    return contract[region]
 
 
 def save_copy(path):
@@ -125,7 +182,7 @@ def initialize_working(session):
         raise ReferenceError("Phase 0 has unsaved changes; preserve them before initializing")
     baseline = snapshot_phase0()
     state = load(session / "state.json")
-    if state["state"] != "REFERENCES_READY" or (session / "phase0_source/scene_snapshot.json").exists():
+    if state["state"] != "REFERENCES_READY" or state.get("checkpoint"):
         raise ReferenceError("Working copy already initialized")
     manifest = load(records["manifest"]["path"])
     for v in VIEWS:
@@ -135,8 +192,9 @@ def initialize_working(session):
                 or ref["object"] != obj.name or list(obj.data.size) != ref["size_px"]
                 or any(abs(float(a)-float(b)) > 1e-5 for a,b in zip(obj.location, ref["location"]))):
             raise ReferenceError("Reviewed Phase 0 scene/source image does not match manifest")
-    save_working(session)
-    write_new(session / "phase0_source/scene_snapshot.json", baseline)
+    ensure_json(session / "phase0_source/scene_snapshot.json", baseline)
+    state = commit_model(session, state, state)
+    materialize(session, state)
     bpy.ops.wm.open_mainfile(filepath=str(session / "phase1_working.blend"))
     context(session)
     return {"status": "REFERENCES_READY", "working_file": bpy.data.filepath}
@@ -147,17 +205,17 @@ def accept_landmarks(session, contract_path, landmarks_path):
     if state["state"] != "REFERENCES_READY":
         raise ReferenceError("Landmarks can only be accepted after REFERENCES_READY")
     contract, landmarks = load(contract_path), load(landmarks_path)
-    validate_contract(contract, landmarks, state["sources"])
+    validate_contract(contract, landmarks, state["sources"], require_head=False)
     manifest = load(load(session / "phase0_source/inputs.json")["manifest"]["path"])
     if abs(contract["height_m"] - manifest["character_height_m"]) > 1e-6:
         raise ReferenceError("Contract height differs from Phase 0")
     ensure_json(session / "landmarks.json", landmarks)
     ensure_json(session / "model_contract.json", contract)
+    previous = state
     state = transition(state, "LANDMARKS_READY")
     state["contract_sha256"] = digest(session / "model_contract.json")
     state["landmarks_sha256"] = digest(session / "landmarks.json")
-    replace_json(session / "state.json", state)
-    return state
+    return commit_model(session, previous, state)
 
 
 def owned_objects():
@@ -173,7 +231,7 @@ def build_region(session, region):
     if state["state"] == blockout[region] and (not state["history"] or state["history"][-1]["verdict"] != "REWORK"):
         raise ReferenceError("Rebuild needs an explicit REWORK finding")
     contract = load(session / "model_contract.json")
-    geometry = (body_mesh if region == "body" else head_mesh)(contract[region])
+    geometry = (body_mesh if region == "body" else head_mesh)(region_spec(session, state, region))
     collection = bpy.data.collections.get(WORKSPACES[region])
     if collection is None or collection.library or collection.get("char_base_model_phase0") != collection.name:
         raise ReferenceError("Missing or foreign Builder workspace")
@@ -201,14 +259,12 @@ def build_region(session, region):
         obj = bpy.data.objects.new(name, data)
         obj[OWNER] = region
         obj["semantic_regions"] = json.dumps(geometry.regions)
+        obj["semantic_face_map"] = json.dumps(capture(geometry.faces, geometry.regions))
         collection.objects.link(obj)
         if snapshot_phase0() != load(session / "phase0_source/scene_snapshot.json"):
             raise ReferenceError("Builder altered protected Phase 0 data")
         # Save before state advancement. A failed save leaves state unchanged.
-        save_copy(session / "attempts" / (name.lower() + "_blockout.blend"))
-        save_working(session)
-        state = transition(state, blockout[region])
-        replace_json(session / "state.json", state)
+        state = commit_model(session, state, transition(state, blockout[region]))
     except Exception:
         if obj:
             bpy.data.objects.remove(obj, do_unlink=True)
@@ -235,13 +291,16 @@ def edit_region(session, region, edits):
     if not obj or obj.get(OWNER) != region:
         raise ReferenceError("Missing owned Builder mesh")
     from phase1_geometry import point
-    spec = load(session / "model_contract.json")[region]
+    spec = region_spec(session, state, region)
     updates = {int(i): point(p) for i, p in edits.items()}
     if not updates or any(not 0 <= i < len(obj.data.vertices) for i in updates):
         raise ReferenceError("Invalid vertex edits")
     if any(not spec["bounds"][j][0] <= p[j] <= spec["bounds"][j][1] for p in updates.values() for j in range(3)):
         raise ReferenceError("Edits exceed workspace bounds")
-    labels = json.loads(obj["semantic_regions"])
+    if "semantic_face_map" not in obj:
+        raise ReferenceError("Legacy positional region labels need explicit migration/replanning")
+    labels = resolve([tuple(p.vertices) for p in obj.data.polygons],
+                     json.loads(obj["semantic_face_map"]))
     findings = state["history"][-1]["review"]["findings"]
     preserve = {r for f in findings for r in f["preserve_regions"]}
     affected = {f["region"] for f in findings}
@@ -263,10 +322,10 @@ def edit_region(session, region, edits):
         stats = validate_scene()[obj.name]
         if stats["invalid_faces"] or stats["boundary_edges"] or stats["nonmanifold_edges"]:
             raise ReferenceError("Local edit damages mesh validity")
-        n = len(list((session / "attempts").glob("edit_*.json")))
-        save_copy(session / "attempts" / f"edit_{n:03d}.blend")
-        write_new(session / "attempts" / f"edit_{n:03d}.json", {"region": region, "edits": edits})
-        save_working(session)
+        from uuid import uuid4
+        edit_id = uuid4().hex
+        write_new(session / "attempts" / f"edit_{edit_id}.json", {"region": region, "edits": edits})
+        commit_model(session, state, state)
     except Exception:
         for i, p in before.items():
             obj.data.vertices[i].co = p
@@ -315,10 +374,7 @@ def refine_topology(session):
                 bm.free()
             obj.data.update()
     # No automatic decimation/remeshing: measured ring and feature loops are retained.
-    save_copy(session / "attempts/topology_refined.blend")
-    save_working(session)
-    state = transition(state, "TOPOLOGY_REFINEMENT")
-    replace_json(session / "state.json", state)
+    commit_model(session, state, transition(state, "TOPOLOGY_REFINEMENT"))
     return validate_scene()
 
 
@@ -346,7 +402,6 @@ def collect_evidence(session):
                    if p.name[8:].isdigit()), default=-1) + 1
     folder = session / "review" / f"attempt_{attempt:03d}"
     folder.mkdir()
-    save_working(session)
     save_copy(folder / "candidate.blend")
     write_new(folder / "review_context.json", review_context(state))
     write_new(folder / "metrics.json", {"meshes": validate_scene(), "silhouette": "UNVERIFIED",
@@ -439,15 +494,19 @@ def submit_review(session, evidence_folder, review_path):
                 raise ReferenceError("Mesh health blocks PASS")
     candidate = transition(state, target, review=review, evidence=binding)
     ensure_json(folder / "findings.json", review)
+    candidate = commit_model(session, state, candidate)
     if candidate["state"] == "PHASE1_COMPLETE":
-        save_copy(session / "phase1_final.blend")
-    replace_json(session / "state.json", candidate)
+        materialize(session, candidate, "phase1_final.blend")
     return candidate
 
 
 def report(session):
     session = Path(session).resolve()
     state = load(session / "state.json")
+    if (Path(bpy.data.filepath).resolve() != session / "phase1_working.blend"
+            or bpy.context.scene.get("p1_generation") != state.get("checkpoint", {}).get("file")):
+        raise ReferenceError("Open the committed session before reporting")
+    checkpoint_path(session, state)
     text = ["# Phase 1 report", "", f"State: {state['state']}", f"Status: {state['status']}", "",
             "Actual Blender mesh statistics:", "```json", json.dumps(validate_scene(), indent=2), "```", "",
             "Head and body remain separate closed surfaces. Inspect neck contact in all six views;",

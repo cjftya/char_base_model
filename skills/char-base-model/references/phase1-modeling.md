@@ -49,6 +49,8 @@ contradictions. Resolve contradictory poses/shapes explicitly; never average
 away inconsistent anatomy. Hair/horns/tail/accessories are excluded. If an
 occluded silhouette cannot be supported, mark uncertainty or block that region.
 
+The initial contract may omit `head`; retain shared height, neck and landmark measurements. After Body Shape Gate, call `accept_head(session, head_spec_path)` to validate and bind the measured head specification. Existing contracts containing both regions remain supported.
+
 Write two draft files outside their eventual session filenames, then invoke
 `accept_landmarks(session, draft_contract, draft_landmarks)`. See
 [contracts](../../../contracts/phase1-format.md) for the exact structure.
@@ -140,3 +142,28 @@ history and actual mesh counts. Report unresolved likeness, self-intersection,
 neck gaps and unavailable measurements explicitly. An I/O interruption between
 checkpoint and state publication is a recovery situation: inspect the saved
 attempt, report the interruption, and replan if consistency is uncertain.
+
+## Committed generations and recovery
+
+Every successful model/state operation publishes an immutable
+`phase1_generation_<id>.blend` beside the working file, then atomically selects
+it in `state.json.checkpoint`. Only this state-selected generation is committed.
+Unreferenced generations are failed attempts and must not be selected by date.
+The Blender scene carries the same generation identifier; reopening a stale
+working file blocks operations until recovery.
+
+Use `recover_working(session)` to verify the committed hash, recreate the working
+file and reopen it. Unsaved scene edits stop recovery; preserve them separately
+before calling again, or explicitly authorize `discard_unsaved=True`. On a
+committed COMPLETE state this also recreates a missing final output. The final
+filename alone is not evidence of approval. A publication lock prevents two
+writers. After process termination, confirm no writer remains before removing
+`.checkpoint.lock`; never clear another live writer's lock automatically.
+
+The working file is now a recoverable convenience copy, not the authoritative
+checkpoint. Existing Phase 1 sessions without checkpoints/face maps must be
+replanned in a new session from their original Phase 0 inputs; no automatic
+migration guesses which old file was approved. Phase 0 inputs remain unchanged.
+Polygon region lookup tolerates polygon reordering and winding reversal. A
+changed vertex membership is a topology revision and deliberately blocks local
+position edits. Major retopology still needs explicit replanning.

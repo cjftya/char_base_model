@@ -11,7 +11,9 @@ REQUIRED = {'candidate.blend', 'metrics.json', 'alignment.json', 'review_context
 def review_context(state):
     return {'state': state['state'], 'history_length': len(state['history']),
             'contract_sha256': state['contract_sha256'],
-            'landmarks_sha256': state['landmarks_sha256']}
+            'landmarks_sha256': state['landmarks_sha256'],
+            'head_spec_sha256': state.get('head_spec_sha256'),
+            'generation': state.get('checkpoint', {}).get('file')}
 
 
 def validate_evidence(folder, state):

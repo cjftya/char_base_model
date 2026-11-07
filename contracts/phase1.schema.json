@@ -8,8 +8,7 @@
     "height_m",
     "axes",
     "neck",
-    "body",
-    "head"
+    "body"
   ],
   "properties": {
     "schema_version": {
@@ -246,5 +245,6 @@
         }
       }
     }
-  }
+  },
+  "description": "Head geometry may be deferred until BODY_SHAPE_REVIEW; use accept_head to bind it before head construction."
 }

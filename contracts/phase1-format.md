@@ -14,7 +14,7 @@ measure the user's **current** references.
 | axes | `{"up":"+Z","front":"-Y","sole_z":0}` |
 | neck | `center: [x,y,z]`, positive `width_m`, `depth_m`; shared Body/Head contact |
 | body | `torso`, `limbs`, `source_notes`, `bounds` |
-| head | `rings`, `features`, `nose_vertices`, `nose_base`, `source_notes`, `bounds` |
+| head (optional until Body Shape Gate) | `rings`, `features`, `nose_vertices`, `nose_base`, `source_notes`, `bounds` |
 
 A ring is `[[x,y,z], ...]` with at least four ordered samples. A loft is
 `[ring, ring, ...]` with at least two equally sized rings. Samples are not forced
@@ -76,3 +76,12 @@ The session contains the original draft-independent accepted JSON files,
 only after final approval, `phase1_final.blend`. Sources stay at their original
 paths; current four images are also copied into `references`. No backup folder
 is searched automatically.
+
+
+Checkpoint-backed sessions store the canonical model filename and SHA-256 in
+`state.json.checkpoint`. The generation model and candidate state are published
+as one logical commit. `head_spec.json` and `head_spec_sha256` bind deferred head
+geometry; the shared model contract and approved body specification stay intact.
+Evidence includes the generation and optional head-spec hash in review_context.
+New meshes store semantic_face_map keyed by polygon vertex membership; the old
+positional semantic_regions property is compatibility metadata only.
