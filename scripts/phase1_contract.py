@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 import hashlib
 import json
+import math
 from pathlib import Path
 import shutil
 
@@ -33,9 +34,30 @@ def load(path):
 
 
 def write_new(path, data):
-    with Path(path).open("x", encoding="utf-8") as stream:
-        json.dump(data, stream, indent=2, allow_nan=False)
-        stream.write("\n")
+    # Serialize before creating a file; invalid values cannot poison a retry.
+    payload = json.dumps(data, indent=2, allow_nan=False) + "\n"
+    path = Path(path)
+    created = False
+    try:
+        with path.open("x", encoding="utf-8") as stream:
+            created = True
+            stream.write(payload)
+    except Exception:
+        if created:
+            path.unlink(missing_ok=True)
+        raise
+
+
+def ensure_json(path, data):
+    """Retry an interrupted immutable publication only with identical content."""
+    path = Path(path)
+    if path.is_symlink():
+        raise ReferenceError("Immutable JSON must not be a symlink")
+    if path.exists():
+        if load(path) != data:
+            raise ReferenceError("Existing immutable JSON differs: " + str(path))
+    else:
+        write_new(path, data)
 
 
 def replace_json(path, data):
@@ -96,7 +118,7 @@ def validate_contract(contract, landmarks, sources):
             raise ReferenceError(f"Record measured profiles and uncertainty for {key}")
         bounds = spec.get("bounds")
         if not isinstance(bounds, list) or len(bounds) != 3 or any(
-            not isinstance(b, list) or len(b) != 2 or any(type(n) not in (int, float) for n in b)
+            not isinstance(b, list) or len(b) != 2 or any(type(n) not in (int, float) or not math.isfinite(n) for n in b)
             or not b[0] < b[1] for b in bounds
         ):
             raise ReferenceError(f"Define {key} XYZ working bounds")
@@ -171,5 +193,3 @@ def verify_sources(session):
     for record in [records["blend"], records["manifest"], records["review"], *records["images"].values()]:
         if digest(record["path"]) != record["sha256"]:
             raise ReferenceError("Phase 0 source changed; stop before further writes")
-
-

@@ -14,9 +14,10 @@ import bpy
 import bmesh
 from mathutils import Vector
 from phase1_render import reference_overlay
+from phase1_evidence import review_context, validate_evidence
 from phase1_workflow import BUILD_START, BLOCKOUT, REVIEW_NEXT
 
-from phase1_contract import (load, write_new, replace_json, digest, verify_sources,
+from phase1_contract import (load, write_new, ensure_json, replace_json, digest, verify_sources,
                              validate_contract, transition, STATES)
 from phase1_geometry import Mesh, body_mesh, head_mesh, mesh_stats
 from reference_common import ReferenceError, VIEWS
@@ -71,6 +72,12 @@ def context(session):
         if current["REF_" + view.upper()]["packed_sha256"] != state["sources"][view]:
             raise ReferenceError("Packed Phase 0 image differs from the landmark source: " + view)
     for obj in owned_objects():
+        region = obj.get(OWNER)
+        workspace = bpy.data.collections.get(WORKSPACES.get(region, ""))
+        if (region not in WORKSPACES or workspace is None
+                or tuple(obj.users_collection) != (workspace,) or obj.library
+                or obj.data is None or obj.data.library or obj.data.users != 1):
+            raise ReferenceError("Builder mesh is foreign, shared or outside its workspace")
         if (obj.type != "MESH" or obj.modifiers or obj.constraints or obj.animation_data
                 or obj.data.shape_keys or obj.hide_render or obj.hide_viewport or obj.hide_get()):
             raise ReferenceError("Unsupported deformation, animation or hidden Builder object")
@@ -144,8 +151,8 @@ def accept_landmarks(session, contract_path, landmarks_path):
     manifest = load(load(session / "phase0_source/inputs.json")["manifest"]["path"])
     if abs(contract["height_m"] - manifest["character_height_m"]) > 1e-6:
         raise ReferenceError("Contract height differs from Phase 0")
-    write_new(session / "landmarks.json", landmarks)
-    write_new(session / "model_contract.json", contract)
+    ensure_json(session / "landmarks.json", landmarks)
+    ensure_json(session / "model_contract.json", contract)
     state = transition(state, "LANDMARKS_READY")
     state["contract_sha256"] = digest(session / "model_contract.json")
     state["landmarks_sha256"] = digest(session / "landmarks.json")
@@ -218,6 +225,8 @@ def edit_region(session, region, edits):
     This is the local rework path used by the Builder after visual inspection.
     """
     session, state = context(session)
+    if region not in WORKSPACES:
+        raise ReferenceError("Unknown Builder region")
     expected = BLOCKOUT
     if (state["state"] not in (expected.get(region), "TOPOLOGY_REFINEMENT", "INTEGRATION_REVIEW")
             or not state["history"] or state["history"][-1]["verdict"] != "REWORK"):
@@ -249,7 +258,7 @@ def edit_region(session, region, edits):
     before = {i: obj.data.vertices[i].co.copy() for i in updates}
     try:
         for i, p in updates.items():
-            obj.data.vertices[i].co = p
+            obj.data.vertices[i].co = obj.matrix_world.inverted() @ Vector(p)
         obj.data.update()
         stats = validate_scene()[obj.name]
         if stats["invalid_faces"] or stats["boundary_edges"] or stats["nonmanifold_edges"]:
@@ -333,11 +342,13 @@ def collect_evidence(session):
     session, state = context(session)
     if state["state"] not in ("BODY_BLOCKOUT", "HEAD_BLOCKOUT", "TOPOLOGY_REFINEMENT", "INTEGRATION_REVIEW"):
         raise ReferenceError("Evidence requested outside a reviewable stage")
-    attempt = len(list((session / "review").glob("attempt_*")))
+    attempt = max((int(p.name[8:]) for p in (session / "review").glob("attempt_*")
+                   if p.name[8:].isdigit()), default=-1) + 1
     folder = session / "review" / f"attempt_{attempt:03d}"
     folder.mkdir()
     save_working(session)
     save_copy(folder / "candidate.blend")
+    write_new(folder / "review_context.json", review_context(state))
     write_new(folder / "metrics.json", {"meshes": validate_scene(), "silhouette": "UNVERIFIED",
               "reason": "No human-verified background masks supplied; inspect calibrated overlays"})
     manifest_path = load(session / "phase0_source/inputs.json")["manifest"]["path"]
@@ -407,14 +418,7 @@ def submit_review(session, evidence_folder, review_path):
     folder = Path(evidence_folder).resolve()
     if folder.parent != session / "review":
         raise ReferenceError("Review evidence must belong to this session")
-    binding = load(folder / "evidence.json")
-    for name, value in binding.items():
-        if Path(name).name != name or name in (".", ".."):
-            raise ReferenceError("Evidence paths must be local filenames")
-        if name not in ("contract_sha256", "landmarks_sha256") and digest(folder / name) != value:
-            raise ReferenceError("Evidence artifacts changed since review collection")
-    if any(binding.get(key) != state.get(key) for key in ("contract_sha256", "landmarks_sha256")):
-        raise ReferenceError("Evidence contract changed")
+    binding = validate_evidence(folder, state)
     # Hash the saved current geometry too; a Reviewer cannot approve stale renders.
     metrics = load(folder / "metrics.json")["meshes"]
     if metrics != validate_scene():
@@ -434,7 +438,7 @@ def submit_review(session, evidence_folder, review_path):
                     or stats["components"] != 1 or stats["signed_volume"] <= 0):
                 raise ReferenceError("Mesh health blocks PASS")
     candidate = transition(state, target, review=review, evidence=binding)
-    write_new(folder / "findings.json", review)
+    ensure_json(folder / "findings.json", review)
     if candidate["state"] == "PHASE1_COMPLETE":
         save_copy(session / "phase1_final.blend")
     replace_json(session / "state.json", candidate)

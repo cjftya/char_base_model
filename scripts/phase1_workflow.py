@@ -36,6 +36,14 @@ def transition(state, target, *, review=None, evidence=None):
         keys = {"region", "severity", "evidence", "expected", "observed", "suggested_action", "preserve_regions", "attempt"}
         if any(not isinstance(f, dict) or not keys <= f.keys() for f in findings):
             raise ReferenceError("Incomplete structured finding")
+        for finding in findings:
+            if (finding["severity"] not in ("info", "warning", "error", "critical")
+                    or type(finding["attempt"]) is not int or finding["attempt"] < 1
+                    or not isinstance(finding["preserve_regions"], list)
+                    or any(not isinstance(r, str) for r in finding["preserve_regions"])
+                    or any(not isinstance(finding[k], str) or not finding[k].strip()
+                           for k in ("region", "evidence", "expected", "observed", "suggested_action"))):
+                raise ReferenceError("Malformed reviewer finding")
         if verdict == "PASS":
             if any(review.get("checks", {}).get(k) != "PASS" for k in VISUAL_CHECKS):
                 raise ReferenceError("All visual checks must pass")

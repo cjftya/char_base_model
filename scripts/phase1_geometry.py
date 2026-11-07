@@ -47,6 +47,23 @@ def boundary(faces):
     """Return the ordered boundary of a connected, disk-shaped face patch."""
     counts = Counter(tuple(sorted((a, b))) for f in faces
                      for a, b in zip(f, f[1:] + f[:1]))
+    vertices = {v for f in faces for v in f}
+    if any(n > 2 for n in counts.values()) or len(vertices)-len(counts)+len(faces) != 1:
+        raise ReferenceError("Attachment patch must be a manifold disk")
+    adjacency = defaultdict(set)
+    for a, b in counts:
+        adjacency[a].add(b)
+        adjacency[b].add(a)
+    remaining = set(vertices)
+    if not remaining:
+        raise ReferenceError("Empty attachment patch")
+    pending = [remaining.pop()]
+    while pending:
+        for v in adjacency[pending.pop()] & remaining:
+            remaining.remove(v)
+            pending.append(v)
+    if remaining:
+        raise ReferenceError("Attachment patch is disconnected")
     edges = [(a, b) for f in faces for a, b in zip(f, f[1:] + f[:1])
              if counts[tuple(sorted((a, b)))] == 1]
     following = {}
@@ -141,7 +158,7 @@ def head_mesh(spec):
         rings = loft(mesh, feature["rings"], feature["region"], cap_start=False)
         mesh.bridge(edge, rings[0], feature["region"] + ":rim")
     nose = spec.get("nose_vertices", [])
-    if len(nose) < 3 or any(type(i) is not int or not 0 <= i < len(mesh.vertices) for i in nose):
+    if len(nose) < 3 or len(set(nose)) != len(nose) or any(type(i) is not int or not 0 <= i < len(mesh.vertices) for i in nose):
         raise ReferenceError("Mark at least three integrated nose vertices")
     # World -Y is forward. A genuine nose must project beyond its supplied base.
     used = {v for f in mesh.faces for v in f}
