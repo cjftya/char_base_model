@@ -1,0 +1,8 @@
+{
+  "target_triangle_range": [16000, 30000],
+  "max_total_triangles": 30000,
+  "warning_ratio": 0.8,
+  "max_ring_samples": 128,
+  "max_loft_rings": 128,
+  "exception_reason": ""
+}

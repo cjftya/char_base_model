@@ -244,6 +244,42 @@
           "maxItems": 3
         }
       }
+    },
+    "polygon_policy": {
+      "type": "object",
+      "description": "Optional overrides of config/polygon_policy.json. Non-default values require exception_reason; executable validation lives in phase1_budget.policy.",
+      "additionalProperties": false,
+      "properties": {
+        "target_triangle_range": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "integer",
+            "minimum": 1
+          }
+        },
+        "max_total_triangles": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "warning_ratio": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1
+        },
+        "max_ring_samples": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_loft_rings": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "exception_reason": {
+          "type": "string"
+        }
+      }
     }
   },
   "description": "Head geometry may be deferred until BODY_SHAPE_REVIEW; use accept_head to bind it before head construction."

@@ -22,6 +22,7 @@ from phase1_workflow import BUILD_START, BLOCKOUT, REVIEW_NEXT
 from phase1_contract import (load, write_new, ensure_json, replace_json, digest, verify_sources,
                              validate_contract, transition, STATES)
 from phase1_geometry import Mesh, body_mesh, head_mesh, mesh_stats
+from phase1_budget import policy, summarize, require_budget
 from reference_common import ReferenceError, VIEWS
 
 OWNER = "char_base_model_phase1"
@@ -231,7 +232,9 @@ def build_region(session, region):
     if state["state"] == blockout[region] and (not state["history"] or state["history"][-1]["verdict"] != "REWORK"):
         raise ReferenceError("Rebuild needs an explicit REWORK finding")
     contract = load(session / "model_contract.json")
-    geometry = (body_mesh if region == "body" else head_mesh)(region_spec(session, state, region))
+    rules = policy(contract.get("polygon_policy"))
+    geometry = (body_mesh if region == "body" else head_mesh)(
+        region_spec(session, state, region), polygon_policy=rules)
     collection = bpy.data.collections.get(WORKSPACES[region])
     if collection is None or collection.library or collection.get("char_base_model_phase0") != collection.name:
         raise ReferenceError("Missing or foreign Builder workspace")
@@ -263,6 +266,7 @@ def build_region(session, region):
         collection.objects.link(obj)
         if snapshot_phase0() != load(session / "phase0_source/scene_snapshot.json"):
             raise ReferenceError("Builder altered protected Phase 0 data")
+        require_budget(summarize(validate_scene(), rules))
         # Save before state advancement. A failed save leaves state unchanged.
         state = commit_model(session, state, transition(state, blockout[region]))
     except Exception:
@@ -343,6 +347,35 @@ def validate_scene():
         mesh = Mesh([tuple(obj.matrix_world @ v.co) for v in obj.data.vertices],
                     [tuple(p.vertices) for p in obj.data.polygons])
         stats = mesh_stats(mesh)
+        # Blender tessellates n-gons; never approximate face count * 2.
+        def counts(data):
+            data.calc_loop_triangles()
+            return dict(vertices=len(data.vertices), edges=len(data.edges),
+                        faces=len(data.polygons), triangles=len(data.loop_triangles))
+        stats["original"] = counts(obj.data)
+        evaluated = obj.evaluated_get(bpy.context.evaluated_depsgraph_get())
+        try:
+            data = evaluated.to_mesh()
+            if data is None:
+                raise ReferenceError("Cannot evaluate mesh: " + obj.name)
+            stats["evaluated"] = counts(data)
+        finally:
+            evaluated.to_mesh_clear()
+        # The current session contract forbids ALL modifiers and deformations.
+        # An externally altered scene can still be diagnosed read-only, but its
+        # viewport evaluation must never masquerade as verified render geometry.
+        stats["render_evaluation_verified"] = not (
+            obj.modifiers or obj.constraints or obj.animation_data or obj.data.shape_keys)
+        stats["modifier_details"] = [dict(name=m.name, type=m.type,
+            viewport=m.show_viewport, render=m.show_render,
+            levels=getattr(m, "levels", None), render_levels=getattr(m, "render_levels", None))
+            for m in obj.modifiers]
+        stats["region_triangles"] = {}
+        if "semantic_face_map" in obj:
+            labels = resolve(mesh.faces, json.loads(obj["semantic_face_map"]))
+            for face, label in zip(mesh.faces, labels):
+                stats["region_triangles"][label] = stats["region_triangles"].get(label, 0) + len(face)-2
+        stats["symmetry"] = "MANUAL_REVIEW_REQUIRED: intentional asymmetry is reference-dependent"
         stats["geometry_sha256"] = hashlib.sha256(json.dumps(
             {"vertices": mesh.vertices, "faces": mesh.faces}, sort_keys=True).encode()).hexdigest()
         bm = bmesh.new()
@@ -373,6 +406,7 @@ def refine_topology(session):
             finally:
                 bm.free()
             obj.data.update()
+    require_budget(summarize(validate_scene(), policy(load(session / "model_contract.json").get("polygon_policy"))))
     # No automatic decimation/remeshing: measured ring and feature loops are retained.
     commit_model(session, state, transition(state, "TOPOLOGY_REFINEMENT"))
     return validate_scene()
@@ -404,7 +438,10 @@ def collect_evidence(session):
     folder.mkdir()
     save_copy(folder / "candidate.blend")
     write_new(folder / "review_context.json", review_context(state))
-    write_new(folder / "metrics.json", {"meshes": validate_scene(), "silhouette": "UNVERIFIED",
+    meshes = validate_scene()
+    budget = summarize(meshes, policy(load(session / "model_contract.json").get("polygon_policy")))
+    write_new(folder / "metrics.json", {"meshes": meshes, "polygon_budget": budget,
+              "blender_execution": "EXECUTED_ON_BLENDER_HOST; transport not inferred", "silhouette": "UNVERIFIED",
               "reason": "No human-verified background masks supplied; inspect calibrated overlays"})
     manifest_path = load(session / "phase0_source/inputs.json")["manifest"]["path"]
     source_scene = bpy.context.scene
@@ -475,7 +512,11 @@ def submit_review(session, evidence_folder, review_path):
         raise ReferenceError("Review evidence must belong to this session")
     binding = validate_evidence(folder, state)
     # Hash the saved current geometry too; a Reviewer cannot approve stale renders.
-    metrics = load(folder / "metrics.json")["meshes"]
+    saved_metrics = load(folder / "metrics.json")
+    metrics = saved_metrics["meshes"]
+    budget = summarize(metrics, policy(load(session / "model_contract.json").get("polygon_policy")))
+    if saved_metrics.get("polygon_budget") != budget:
+        raise ReferenceError("Polygon policy changed; recollect review evidence")
     if metrics != validate_scene():
         raise ReferenceError("Geometry changed after evidence collection")
     target = REVIEW_NEXT.get(state["state"])
@@ -483,12 +524,13 @@ def submit_review(session, evidence_folder, review_path):
         raise ReferenceError("No pending review gate")
     review = load(review_path)
     if review.get("verdict") == "PASS":
+        require_budget(budget)
         names = {"P1_BODY"} if state["state"] == "BODY_BLOCKOUT" else {"P1_BODY", "P1_HEAD"}
         if set(metrics) != names:
             raise ReferenceError("Required actual meshes are missing")
         for stats in metrics.values():
             if (stats["boundary_edges"] or stats["nonmanifold_edges"] or stats["invalid_faces"]
-                    or stats["isolated_vertices"] or stats["duplicate_vertices"]
+                    or stats["isolated_vertices"] or stats["duplicate_vertices"] or stats["duplicate_faces"]
                     or stats["inconsistent_winding_edges"] or stats["nonmanifold_vertices"]
                     or stats["components"] != 1 or stats["signed_volume"] <= 0):
                 raise ReferenceError("Mesh health blocks PASS")
@@ -507,8 +549,13 @@ def report(session):
             or bpy.context.scene.get("p1_generation") != state.get("checkpoint", {}).get("file")):
         raise ReferenceError("Open the committed session before reporting")
     checkpoint_path(session, state)
+    meshes = validate_scene()
+    budget = summarize(meshes, policy(load(session / "model_contract.json").get("polygon_policy")))
     text = ["# Phase 1 report", "", f"State: {state['state']}", f"Status: {state['status']}", "",
-            "Actual Blender mesh statistics:", "```json", json.dumps(validate_scene(), indent=2), "```", "",
+            "Actual Blender mesh statistics:", "```json", json.dumps(meshes, indent=2), "```", "",
+            "Polygon budget (render-equivalent only for supported undeformed meshes):",
+            "```json", json.dumps(budget, indent=2), "```", "",
+            "Blender host execution: executed. MCP transport: not independently detected.", "",
             "Head and body remain separate closed surfaces. Inspect neck contact in all six views;",
             "separate meshes are not a claim of rig-ready topology.", "", "Gate history:"]
     for item in state["history"]:
@@ -521,3 +568,4 @@ def report(session):
     with path.open('x', encoding='utf-8') as stream:
         stream.write('\n'.join(text) + '\n')
     return str(path)
+

@@ -5,6 +5,17 @@ four orthographic PNGs, two obliques, four overlays, `alignment.json`,
 `metrics.json`, accepted contract/landmarks and exact `evidence.json` hashes.
 Do not modify mesh, scene, state or report checks you cannot observe.
 
+## Independent polygon validation
+
+Read [polygon policy](../../../docs/phase1-polygon-budget.md). Rerun
+`phase1_blender.validate_scene()` on the actual candidate through Blender MCP;
+do not trust Builder counts. Compare the result with `metrics.json.meshes` and
+inspect `polygon_budget` policy, totals, object ranking and warnings. Missing or
+stale budget evidence needs recollection. Over-budget or unverified render
+geometry blocks PASS; do not excuse it because original face counts look small.
+Inspect duplicate/disconnected parts and reference-supported symmetry manually.
+Check facial contours, joint loops and silhouette even when triangle count is low.
+
 ## Evidence and verdict
 
 Every review file contains:
@@ -91,3 +102,4 @@ blocked stage and give connection guidance. Keep synthetic topology tests clearl
 separate from a reference-matched character result. List the top 1–3 concrete
 remaining improvements and the output paths. Do not label the run COMPLETE just
 because unit tests passed.
+

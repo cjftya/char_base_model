@@ -36,6 +36,22 @@ the new session. No automatic script modifies Phase 0.
    this step or manually save over the source. This phase only replaces its own
    `phase1_working.blend`; attempts/final files are exclusively created.
 
+## Plan polygon density before generation
+
+Read [polygon policy and failure handling](../../../docs/phase1-polygon-budget.md).
+Load effective values with `phase1_budget.policy`; never duplicate numeric defaults
+in prompts. Record a dynamic density plan in Body/Head `source_notes` before
+supplying rings: prioritize measured face contours and joint loops, use fewer
+samples along straight/flat spans, and explain uncertainty. Treat the target
+range as guidance, not a minimum or a fixed per-part quota. A policy override
+belongs in the draft contract with `exception_reason` before acceptance.
+
+After generation inspect actual original/evaluated counts and object/region
+rankings. Preserve existing modifier/duplicate-object restrictions. Never apply
+blanket Decimate, subdivision or remesh. If unnecessary loops require topology
+changes beyond local vertex edits, stop and replan a separate session preserving
+the current one. Stop reduction if reference shape or joint loops would suffer.
+
 ## Measure, then create the contract
 
 Inspect all four originals at useful resolution. For each view record crown,
@@ -167,3 +183,4 @@ migration guesses which old file was approved. Phase 0 inputs remain unchanged.
 Polygon region lookup tolerates polygon reordering and winding reversal. A
 changed vertex membership is a topology revision and deliberately blocks local
 position edits. Major retopology still needs explicit replanning.
+

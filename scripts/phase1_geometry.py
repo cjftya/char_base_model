@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 import math
 
 from reference_common import ReferenceError
+from phase1_budget import policy, check_lofts
 
 
 def point(value):
@@ -119,12 +120,13 @@ def compact(mesh):
     return mesh
 
 
-def body_mesh(spec):
+def body_mesh(spec, *, polygon_policy=None):
     """Loft torso; replace measured surface patches with bridged limb branches.
 
     Patch indices refer to the current mesh after previous attachments. The
     first limb ring's ordering must match the host boundary; never auto-mirror.
     """
+    check_lofts(spec, "body", policy(polygon_policy))
     mesh = Mesh()
     loft(mesh, spec["torso"], "torso")
     expected = {"arm_left", "arm_right", "leg_left", "leg_right"}
@@ -139,7 +141,7 @@ def body_mesh(spec):
     return compact(mesh)
 
 
-def head_mesh(spec):
+def head_mesh(spec, *, polygon_policy=None):
     """Loft a measured skull and replace facial patches with concentric loops.
 
     Each feature contains two or more explicit 3D rings (outer eyelid/lip rim,
@@ -147,6 +149,7 @@ def head_mesh(spec):
     belong to the measured skull samples, not detached primitive decorations.
     Ears use the same integrated patch/bridge operation.
     """
+    check_lofts(spec, "head", policy(polygon_policy))
     mesh = Mesh()
     loft(mesh, spec["rings"], "skull")
     features = spec.get("features", [])
@@ -209,7 +212,9 @@ def mesh_stats(mesh):
                 remaining.remove(v)
                 pending.append(v)
     return {
-        "vertices": len(vertices), "faces": len(mesh.faces),
+        "vertices": len(vertices), "edges": len(edges), "faces": len(mesh.faces),
+        "triangles": sum(len(f)-2 for i, f in enumerate(mesh.faces) if i not in bad_faces),
+        "duplicate_faces": len(mesh.faces)-len({tuple(sorted(f)) for f in mesh.faces}),
         "boundary_edges": sum(len(e) == 1 for e in edges.values()),
         "nonmanifold_edges": sum(len(e) > 2 for e in edges.values()),
         "inconsistent_winding_edges": sum(len(e) == 2 and e[0] == e[1] for e in edges.values()),
@@ -237,3 +242,4 @@ def silhouette_metrics(reference, model, *, alignment_verified=False):
             "missing_pixels": sum(bool(a and not b) for r, m in zip(reference, model) for a, b in zip(r, m)),
             "excess_pixels": sum(bool(b and not a) for r, m in zip(reference, model) for a, b in zip(r, m)),
             "row_width_error_px": [sum(m)-sum(r) for r, m in zip(reference, model)]}
+

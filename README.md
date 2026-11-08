@@ -74,3 +74,9 @@ likeness remain unverified until a connected host executes a real session.
 See [implementation validation](docs/phase1-validation.md) for current evidence
 and limitations. No new MCP server, rigging, hair, clothing, materials or animation
 is introduced by Phase 1.
+
+
+Polygon generation and acceptance use the shared [polygon policy](config/polygon_policy.json).
+Read [density planning, counts and failure handling](docs/phase1-polygon-budget.md)
+before constructing a Phase 1 contract. Budget checks never automatically Decimate,
+subdivide or remesh measured geometry.

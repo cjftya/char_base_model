@@ -20,6 +20,60 @@ class RuntimeSafetyTests(unittest.TestCase):
                     'bpy_extras':SimpleNamespace(),
                     'bpy_extras.object_utils':SimpleNamespace(world_to_camera_view=Mock())}):
             self.api=runpy.run_path(str(Path(__file__).resolve().parents[1]/'scripts/phase1_blender.py'))
+    def test_scene_counts_evaluated_triangles_and_frees_temporary_mesh(self):
+        class Matrix:
+            def __matmul__(self, value): return value
+        def data(n):
+            return SimpleNamespace(vertices=[SimpleNamespace(co=(0,0,0)),
+                SimpleNamespace(co=(1,0,0)), SimpleNamespace(co=(0,1,0))],
+                polygons=[SimpleNamespace(vertices=(0,1,2))], edges=[0,1,2],
+                loop_triangles=list(range(n)), calc_loop_triangles=Mock(),
+                materials=[], shape_keys=None)
+        original, temporary = data(1), data(8)
+        evaluated = SimpleNamespace(to_mesh=Mock(return_value=temporary), to_mesh_clear=Mock())
+        obj = SimpleNamespace(type='MESH', name='P1_BODY', data=original,
+            matrix_world=Matrix(), evaluated_get=Mock(return_value=evaluated),
+            modifiers=[], constraints=[], animation_data=None, hide_render=False,
+            hide_viewport=False, scale=(1,1,1), location=(0,0,0))
+        class Object(SimpleNamespace):
+            def __contains__(self, key): return False
+        obj = Object(**vars(obj))
+        bm = SimpleNamespace(from_mesh=Mock(), verts=[], calc_volume=Mock(return_value=1), free=Mock())
+        method = self.api['validate_scene']
+        with patch.dict(method.__globals__, {'owned_objects': lambda: [obj],
+                'bpy': SimpleNamespace(context=SimpleNamespace(evaluated_depsgraph_get=Mock())),
+                'bmesh': SimpleNamespace(new=lambda: bm)}):
+            result = method()['P1_BODY']
+            self.assertEqual(result['original']['triangles'], 1)
+            self.assertEqual(result['evaluated']['triangles'], 8)
+            evaluated.to_mesh_clear.assert_called_once()
+            temporary.calc_loop_triangles.side_effect = RuntimeError('tessellation failed')
+            with self.assertRaises(RuntimeError): method()
+            self.assertEqual(evaluated.to_mesh_clear.call_count, 2)
+
+    def test_reviewer_pass_cannot_bypass_total_budget(self):
+        from phase1_budget import policy, summarize
+        session = Path('/session')
+        counts = dict(vertices=10, edges=20, faces=5, triangles=policy()['max_total_triangles']+1)
+        meshes = {'P1_BODY': dict(original=counts, evaluated=counts, render_evaluation_verified=True)}
+        payload = {'meshes': meshes, 'polygon_budget': summarize(meshes, policy())}
+        def load(path):
+            if Path(path).name == 'metrics.json': return payload
+            if Path(path).name == 'model_contract.json': return {}
+            return {'verdict': 'PASS'}
+        commit = Mock()
+        method = self.api['submit_review']
+        with patch.dict(method.__globals__, {'context': lambda _: (session, {'state':'BODY_BLOCKOUT'}),
+                'validate_evidence': lambda *_: {}, 'validate_scene': lambda: meshes,
+                'load': load, 'commit_model': commit}):
+            with self.assertRaisesRegex(ReferenceError, 'budget blocks acceptance'):
+                method(session, session/'review/attempt_000', session/'review.json')
+            commit.assert_not_called()
+            payload['polygon_budget']['policy']['max_total_triangles'] += 10
+            with self.assertRaisesRegex(ReferenceError, 'policy changed'):
+                method(session, session/'review/attempt_000', session/'review.json')
+            commit.assert_not_called()
+
     def test_save_stages_sibling_to_keep_relative_assets_valid(self):
         with tempfile.TemporaryDirectory() as directory:
             final=Path(directory)/'candidate.blend'
@@ -61,3 +115,4 @@ class RuntimeSafetyTests(unittest.TestCase):
     def test_landmark_error_does_not_merge_contradictions(self):
         errors=landmark_errors({'front':{'chin':[0,0,1]},'left':{'chin':[0,0,2]}},{'chin':[0,0,1]})
         self.assertEqual(errors,{'front':{'chin':0},'left':{'chin':1}})
+

@@ -85,3 +85,14 @@ geometry; the shared model contract and approved body specification stay intact.
 Evidence includes the generation and optional head-spec hash in review_context.
 New meshes store semantic_face_map keyed by polygon vertex membership; the old
 positional semantic_regions property is compatibility metadata only.
+
+
+## Polygon policy
+
+Optional `model_contract.json.polygon_policy` overrides are validated by
+`phase1_budget.policy`; see `config/polygon_policy.json` for the single source
+of defaults and [budget behavior](../docs/phase1-polygon-budget.md).
+Every non-default override requires `exception_reason`. Keep the accepted contract
+immutable; policy changes require replanning. Record a dynamic region density
+plan in `body.source_notes` and `head.source_notes` before generating samples.
+Reference resemblance and joint/facial loops take priority over filling a budget.
