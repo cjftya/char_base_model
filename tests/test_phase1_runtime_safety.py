@@ -51,6 +51,45 @@ class RuntimeSafetyTests(unittest.TestCase):
             with self.assertRaises(RuntimeError): method()
             self.assertEqual(evaluated.to_mesh_clear.call_count, 2)
 
+    def test_current_junction_and_region_metrics_survive_blender_adapter(self):
+        import json
+        from phase1_fixtures import contract
+        from phase1_geometry import body_mesh
+        from phase1_regions import capture
+        geometry = body_mesh(contract()['body'])
+        class Matrix:
+            def __matmul__(self, value): return value
+        class Object(SimpleNamespace):
+            def __contains__(self, key): return key in self.props
+            def __getitem__(self, key): return self.props[key]
+        data = SimpleNamespace(vertices=[SimpleNamespace(co=p) for p in geometry.vertices],
+            polygons=[SimpleNamespace(vertices=f) for f in geometry.faces],
+            edges=[], loop_triangles=[SimpleNamespace(polygon_index=i,vertices=(f[0],f[j],f[j+1]))
+                for i,f in enumerate(geometry.faces) for j in range(1,len(f)-1)],
+            calc_loop_triangles=Mock(),materials=[],shape_keys=None)
+        evaluated = SimpleNamespace(to_mesh=Mock(return_value=data),to_mesh_clear=Mock())
+        obj = Object(type='MESH',name='P1_BODY',data=data,matrix_world=Matrix(),
+            evaluated_get=Mock(return_value=evaluated),modifiers=[],constraints=[],animation_data=None,
+            hide_render=False,hide_viewport=False,scale=(1,1,1),location=(0,0,0),props={
+                'semantic_face_map':json.dumps(capture(geometry.faces,geometry.regions)),
+                'semantic_face_order':json.dumps(geometry.faces),
+                'junction_plan':json.dumps(geometry.junctions)})
+        bm = SimpleNamespace(from_mesh=Mock(),verts=[],calc_volume=Mock(return_value=1),free=Mock())
+        method = self.api['validate_scene']
+        with patch.dict(method.__globals__,{'owned_objects':lambda:[obj],
+                'bpy':SimpleNamespace(context=SimpleNamespace(evaluated_depsgraph_get=Mock())),
+                'bmesh':SimpleNamespace(new=lambda:bm)}):
+            result = method()['P1_BODY']
+            self.assertEqual(len(result['junctions']),4)
+            self.assertEqual(len(result['planned_junctions']),4)
+            self.assertEqual(sum(result['region_triangles'].values()),len(data.loop_triangles))
+            self.assertAlmostEqual(sum(v['triangle_share'] for v in result['region_density'].values()),1)
+            face = next(f for f,r in zip(geometry.faces,geometry.regions) if r.endswith(':junction'))
+            data.vertices[face[3]].co = data.vertices[face[0]].co
+            changed = method()['P1_BODY']
+            self.assertTrue(any(j['collapsed_bridge'] for j in changed['junctions']))
+            self.assertFalse(any(j['collapsed_bridge'] for j in changed['planned_junctions']))
+
     def test_reviewer_pass_cannot_bypass_total_budget(self):
         from phase1_budget import policy, summarize
         session = Path('/session')

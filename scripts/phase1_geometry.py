@@ -11,6 +11,7 @@ import math
 
 from reference_common import ReferenceError
 from phase1_budget import policy, check_lofts
+from phase1_junction import correspondence, require_correspondence, quad_quality
 
 
 def point(value):
@@ -26,6 +27,7 @@ class Mesh:
     vertices: list = field(default_factory=list)
     faces: list = field(default_factory=list)
     regions: list = field(default_factory=list)
+    junctions: list = field(default_factory=list)
 
     def face(self, indices, region):
         self.faces.append(tuple(indices))
@@ -134,10 +136,35 @@ def body_mesh(spec, *, polygon_policy=None):
     if {x.get("region") for x in limbs} != expected or len(limbs) != 4:
         raise ReferenceError("Body needs both arms and both legs")
     for limb in limbs:
-        edge = remove_patch(mesh, limb["patch_faces"])
-        rings = loft(mesh, limb["rings"], limb["region"], cap_start=False)
-        # Winding follows the deleted host patch, so every seam edge is shared.
+        patch = limb["patch_faces"]
+        if any(type(i) is not int or not 0 <= i < len(mesh.faces) for i in patch):
+            raise ReferenceError("Invalid attachment face indices")
+        if any(mesh.regions[i] != "torso" for i in patch):
+            raise ReferenceError("Body attachment must replace torso faces, not previous branches")
+        edge = remove_patch(mesh, patch)
+        host = [mesh.vertices[i] for i in edge]
+        transitions = limb.get("transition_rings", [])
+        if not isinstance(transitions, list):
+            raise ReferenceError("transition_rings must be an array")
+        if transitions and (not isinstance(limb.get("transition_note"), str) or not limb["transition_note"].strip()):
+            raise ReferenceError("Measured transition rings require transition_note")
+        if not isinstance(limb["rings"], list) or len(limb["rings"]) < 2:
+            raise ReferenceError("Limb requires at least two ordinary measured rings")
+        profiles = transitions + limb["rings"]
+        offset = limb.get("boundary_offset", 0)
+        explicit = "boundary_offset" in limb and isinstance(limb.get("mapping_note"), str) and bool(limb["mapping_note"].strip())
+        if "boundary_offset" in limb and not explicit:
+            raise ReferenceError("Explicit boundary_offset requires mapping_note")
+        report = correspondence(host, [point(p) for p in profiles[0]], offset)
+        require_correspondence(report, explicit_mapping=explicit)
+        profiles = [r[offset:]+r[:offset] for r in profiles]
+        # Validate every transition and downstream limb span, not just the seam.
+        for a, b in zip(profiles, profiles[1:]):
+            span = correspondence([point(p) for p in a], [point(p) for p in b])
+            require_correspondence(span, explicit_mapping=explicit)
+        rings = loft(mesh, profiles, limb["region"], cap_start=False)
         mesh.bridge(edge, rings[0], limb["region"] + ":junction")
+        mesh.junctions.append({"region": limb["region"], "transition_rings": len(transitions), **report})
     return compact(mesh)
 
 
@@ -182,12 +209,19 @@ def mesh_stats(mesh):
     vertices = [point(p) for p in mesh.vertices]
     edges = defaultdict(list)
     bad_faces = []
+    folded_quads = []
+    quad_cosines = []
     used = set()
     for i, f in enumerate(mesh.faces):
         if len(f) < 3 or len(set(f)) != len(f) or any(type(v) is not int or not 0 <= v < len(vertices) for v in f):
             bad_faces.append(i)
             continue
         used.update(f)
+        if len(f) == 4:
+            quality = quad_quality([vertices[v] for v in f])
+            quad_cosines.append(quality["min_normal_cosine"])
+            if quality["folded"]:
+                folded_quads.append(i)
         # Newell normal catches collinear/zero-area faces without triangulation.
         normal = [0., 0., 0.]
         for a, b in zip(f, f[1:] + f[:1]):
@@ -214,6 +248,9 @@ def mesh_stats(mesh):
     return {
         "vertices": len(vertices), "edges": len(edges), "faces": len(mesh.faces),
         "triangles": sum(len(f)-2 for i, f in enumerate(mesh.faces) if i not in bad_faces),
+        "folded_quads": folded_quads,
+        "min_quad_normal_cosine": min(quad_cosines, default=1.0),
+        "junctions": mesh.junctions,
         "duplicate_faces": len(mesh.faces)-len({tuple(sorted(f)) for f in mesh.faces}),
         "boundary_edges": sum(len(e) == 1 for e in edges.values()),
         "nonmanifold_edges": sum(len(e) > 2 for e in edges.values()),
@@ -243,3 +280,50 @@ def silhouette_metrics(reference, model, *, alignment_verified=False):
             "excess_pixels": sum(bool(b and not a) for r, m in zip(reference, model) for a, b in zip(r, m)),
             "row_width_error_px": [sum(m)-sum(r) for r, m in zip(reference, model)]}
 
+
+
+def require_mesh_health(stats):
+    """Reject detected defects; never equate this with a visual PASS."""
+    keys = ("invalid_faces", "folded_quads", "isolated_vertices", "boundary_edges",
+            "nonmanifold_edges", "inconsistent_winding_edges", "duplicate_faces", "duplicate_vertices")
+    if (any(stats.get(k) for k in keys) or stats["components"] != 1
+            or stats.get("nonmanifold_vertices", 0)
+            or ("signed_volume" in stats and stats["signed_volume"] <= 0)) :
+        raise ReferenceError("Mesh health blocks acceptance: " + str(stats))
+    for report in stats.get("junctions", []):
+        require_correspondence(report, explicit_mapping=True)
+
+
+def junction_metrics(mesh):
+    """Reconstruct seam correspondence from current semantic quads after edits.
+
+    Face winding may have been globally reversed by Blender; rotate each quad
+    to the original semantic face order before calling this function at runtime.
+    It reports detected defects without changing vertices or choosing an offset.
+    """
+    groups = defaultdict(list)
+    for face, region in zip(mesh.faces, mesh.regions):
+        if region.endswith(':junction'):
+            groups[region].append(face)
+    result = []
+    for region, faces in sorted(groups.items()):
+        following, links = {}, {}
+        for face in faces:
+            if len(face) != 4:
+                raise ReferenceError('Junction semantic faces must remain quads')
+            a,b,c,d = face
+            following[a] = b
+            links[a], links[b] = d,c
+        start = min(following)
+        ring = [start]
+        while following.get(ring[-1]) != start:
+            nxt = following.get(ring[-1])
+            if nxt is None or nxt in ring:
+                raise ReferenceError('Junction semantic order changed; replan')
+            ring.append(nxt)
+        if len(ring) != len(faces):
+            raise ReferenceError('Junction must be a single boundary')
+        report = correspondence([mesh.vertices[v] for v in ring],
+                                [mesh.vertices[links[v]] for v in ring])
+        result.append({'region': region, 'scope': 'CURRENT_MESH', **report})
+    return result

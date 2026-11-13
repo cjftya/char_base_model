@@ -133,6 +133,158 @@
                   "minItems": 4
                 },
                 "minItems": 2
+              },
+              "transition_rings": {
+                "type": "array",
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "type": "array",
+                    "items": {
+                      "type": "number"
+                    },
+                    "minItems": 3,
+                    "maxItems": 3
+                  },
+                  "minItems": 4
+                },
+                "minItems": 0
+              },
+              "transition_note": {
+                "type": "string",
+                "minLength": 1
+              },
+              "boundary_offset": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "mapping_note": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "dependentRequired": {
+              "boundary_offset": [
+                "mapping_note"
+              ]
+            }
+          }
+        },
+        "measured_sections": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "region",
+              "ring_index",
+              "note",
+              "views"
+            ],
+            "properties": {
+              "region": {
+                "enum": [
+                  "torso",
+                  "arm_left",
+                  "arm_right",
+                  "leg_left",
+                  "leg_right"
+                ]
+              },
+              "ring_index": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "note": {
+                "type": "string",
+                "minLength": 1
+              },
+              "views": {
+                "type": "object",
+                "required": [
+                  "front",
+                  "back",
+                  "left",
+                  "right"
+                ],
+                "additionalProperties": false,
+                "properties": {
+                  "front": {
+                    "type": "object",
+                    "required": [
+                      "min",
+                      "max",
+                      "z"
+                    ],
+                    "properties": {
+                      "min": {
+                        "type": "number"
+                      },
+                      "max": {
+                        "type": "number"
+                      },
+                      "z": {
+                        "type": "number"
+                      }
+                    }
+                  },
+                  "back": {
+                    "type": "object",
+                    "required": [
+                      "min",
+                      "max",
+                      "z"
+                    ],
+                    "properties": {
+                      "min": {
+                        "type": "number"
+                      },
+                      "max": {
+                        "type": "number"
+                      },
+                      "z": {
+                        "type": "number"
+                      }
+                    }
+                  },
+                  "left": {
+                    "type": "object",
+                    "required": [
+                      "min",
+                      "max",
+                      "z"
+                    ],
+                    "properties": {
+                      "min": {
+                        "type": "number"
+                      },
+                      "max": {
+                        "type": "number"
+                      },
+                      "z": {
+                        "type": "number"
+                      }
+                    }
+                  },
+                  "right": {
+                    "type": "object",
+                    "required": [
+                      "min",
+                      "max",
+                      "z"
+                    ],
+                    "properties": {
+                      "min": {
+                        "type": "number"
+                      },
+                      "max": {
+                        "type": "number"
+                      },
+                      "z": {
+                        "type": "number"
+                      }
+                    }
+                  }
+                }
               }
             }
           }

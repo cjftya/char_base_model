@@ -21,7 +21,7 @@ from phase1_workflow import BUILD_START, BLOCKOUT, REVIEW_NEXT
 
 from phase1_contract import (load, write_new, ensure_json, replace_json, digest, verify_sources,
                              validate_contract, transition, STATES)
-from phase1_geometry import Mesh, body_mesh, head_mesh, mesh_stats
+from phase1_geometry import Mesh, body_mesh, head_mesh, mesh_stats, require_mesh_health, junction_metrics
 from phase1_budget import policy, summarize, require_budget
 from reference_common import ReferenceError, VIEWS
 
@@ -235,6 +235,7 @@ def build_region(session, region):
     rules = policy(contract.get("polygon_policy"))
     geometry = (body_mesh if region == "body" else head_mesh)(
         region_spec(session, state, region), polygon_policy=rules)
+    require_mesh_health(mesh_stats(geometry))
     collection = bpy.data.collections.get(WORKSPACES[region])
     if collection is None or collection.library or collection.get("char_base_model_phase0") != collection.name:
         raise ReferenceError("Missing or foreign Builder workspace")
@@ -261,6 +262,8 @@ def build_region(session, region):
         data.update()
         obj = bpy.data.objects.new(name, data)
         obj[OWNER] = region
+        obj["junction_plan"] = json.dumps(geometry.junctions)
+        obj["semantic_face_order"] = json.dumps(geometry.faces)
         obj["semantic_regions"] = json.dumps(geometry.regions)
         obj["semantic_face_map"] = json.dumps(capture(geometry.faces, geometry.regions))
         collection.objects.link(obj)
@@ -324,8 +327,7 @@ def edit_region(session, region, edits):
             obj.data.vertices[i].co = obj.matrix_world.inverted() @ Vector(p)
         obj.data.update()
         stats = validate_scene()[obj.name]
-        if stats["invalid_faces"] or stats["boundary_edges"] or stats["nonmanifold_edges"]:
-            raise ReferenceError("Local edit damages mesh validity")
+        require_mesh_health(stats)
         from uuid import uuid4
         edit_id = uuid4().hex
         write_new(session / "attempts" / f"edit_{edit_id}.json", {"region": region, "edits": edits})
@@ -373,8 +375,32 @@ def validate_scene():
         stats["region_triangles"] = {}
         if "semantic_face_map" in obj:
             labels = resolve(mesh.faces, json.loads(obj["semantic_face_map"]))
-            for face, label in zip(mesh.faces, labels):
-                stats["region_triangles"][label] = stats["region_triangles"].get(label, 0) + len(face)-2
+            if "semantic_face_order" in obj:
+                original_order = json.loads(obj["semantic_face_order"])
+                original_labels = resolve(original_order, json.loads(obj["semantic_face_map"]))
+                # Membership resolution above detects topology edits. Use stored
+                # winding only to identify the two sides of each current seam.
+                stats["junctions"] = junction_metrics(Mesh(mesh.vertices, original_order, original_labels))
+            stats["planned_junctions"] = json.loads(obj["junction_plan"]) if "junction_plan" in obj else []
+            stats["planned_junction_scope"] = "GENERATION_ONLY; see junctions for current geometry"
+            # Use Blender's actual tessellation for semantic counts and areas.
+            region_areas = {}
+            from phase1_junction import sub, cross, dot
+            for triangle in obj.data.loop_triangles:
+                label = labels[triangle.polygon_index]
+                stats["region_triangles"][label] = stats["region_triangles"].get(label, 0) + 1
+                a,b,c = [mesh.vertices[i] for i in triangle.vertices]
+                n = cross(sub(b,a),sub(c,a))
+                region_areas[label] = region_areas.get(label, 0.0) + dot(n,n)**.5/2
+            stats["region_density"] = {}
+            for polygon, label in zip(obj.data.polygons, labels):
+                item = stats["region_density"].setdefault(label, {"faces": 0, "area_m2": 0.0})
+                item["faces"] += 1
+                item["area_m2"] = region_areas.get(label, 0.0)
+            for label, item in stats["region_density"].items():
+                item["triangles"] = stats["region_triangles"].get(label, 0)
+                item["triangle_share"] = item["triangles"] / max(1, stats["original"]["triangles"])
+                item["triangles_per_m2"] = item["triangles"] / item["area_m2"] if item["area_m2"] else None
         stats["symmetry"] = "MANUAL_REVIEW_REQUIRED: intentional asymmetry is reference-dependent"
         stats["geometry_sha256"] = hashlib.sha256(json.dumps(
             {"vertices": mesh.vertices, "faces": mesh.faces}, sort_keys=True).encode()).hexdigest()
@@ -440,7 +466,11 @@ def collect_evidence(session):
     write_new(folder / "review_context.json", review_context(state))
     meshes = validate_scene()
     budget = summarize(meshes, policy(load(session / "model_contract.json").get("polygon_policy")))
+    from phase1_analysis import measured_sections
+    plan = load(session / "model_contract.json")
     write_new(folder / "metrics.json", {"meshes": meshes, "polygon_budget": budget,
+              "planned_sections": measured_sections(plan["body"]),
+              "section_scope": "ACCEPTED_PLAN_ONLY; local edits require fresh visual/cross-section measurement",
               "blender_execution": "EXECUTED_ON_BLENDER_HOST; transport not inferred", "silhouette": "UNVERIFIED",
               "reason": "No human-verified background masks supplied; inspect calibrated overlays"})
     manifest_path = load(session / "phase0_source/inputs.json")["manifest"]["path"]
@@ -529,6 +559,7 @@ def submit_review(session, evidence_folder, review_path):
         if set(metrics) != names:
             raise ReferenceError("Required actual meshes are missing")
         for stats in metrics.values():
+            require_mesh_health(stats)
             if (stats["boundary_edges"] or stats["nonmanifold_edges"] or stats["invalid_faces"]
                     or stats["isolated_vertices"] or stats["duplicate_vertices"] or stats["duplicate_faces"]
                     or stats["inconsistent_winding_edges"] or stats["nonmanifold_vertices"]

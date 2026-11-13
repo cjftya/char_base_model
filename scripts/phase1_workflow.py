@@ -44,6 +44,13 @@ def transition(state, target, *, review=None, evidence=None):
                     or any(not isinstance(finding[k], str) or not finding[k].strip()
                            for k in ("region", "evidence", "expected", "observed", "suggested_action"))):
                 raise ReferenceError("Malformed reviewer finding")
+        # Topology edits cannot be implemented by the position-only REWORK API.
+        for finding in findings:
+            change = finding.get("change_type", "position")
+            if change not in ("position", "topology"):
+                raise ReferenceError("Unknown finding change_type")
+        if verdict == "REWORK" and any(f.get("change_type") == "topology" for f in findings):
+            verdict = "REPLAN"
         if verdict == "PASS":
             if any(review.get("checks", {}).get(k) != "PASS" for k in VISUAL_CHECKS):
                 raise ReferenceError("All visual checks must pass")

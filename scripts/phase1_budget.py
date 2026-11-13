@@ -34,8 +34,11 @@ def policy(overrides=None):
 
 def check_lofts(spec, region, rules):
     lofts = [(region, spec['torso' if region == 'body' else 'rings'])]
-    lofts += [(part['region'], part['rings']) for part in
-              spec.get('limbs' if region == 'body' else 'features', [])]
+    for part in spec.get('limbs' if region == 'body' else 'features', []):
+        transitions = part.get('transition_rings', []) if region == 'body' else []
+        if not isinstance(transitions, list):
+            raise ReferenceError('transition_rings must be an array')
+        lofts.append((part['region'], transitions + part['rings']))
     for name, rings in lofts:
         if len(rings) > rules['max_loft_rings'] or any(
                 len(r) > rules['max_ring_samples'] for r in rings):

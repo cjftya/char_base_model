@@ -10,7 +10,7 @@ import shutil
 
 from prepare_session import downloads_directory
 from reference_common import ReferenceError, VIEWS
-from phase1_geometry import body_mesh, head_mesh, mesh_stats, point
+from phase1_geometry import body_mesh, head_mesh, mesh_stats, point, require_mesh_health
 
 from phase1_workflow import STATES, VISUAL_CHECKS, transition
 from phase1_budget import policy, summarize, require_budget
@@ -124,14 +124,15 @@ def validate_contract(contract, landmarks, sources, *, require_head=True):
             or not b[0] < b[1] for b in bounds
         ):
             raise ReferenceError(f"Define {key} XYZ working bounds")
+    from phase1_analysis import measured_sections
+    measured_sections(contract["body"])
     rules = policy(contract.get("polygon_policy"))
     counts = {}
     for key in regions:
         mesh = (body_mesh if key == "body" else head_mesh)(contract[key], polygon_policy=rules)
         stats = mesh_stats(mesh)
         counts[key] = {"original": stats, "evaluated": stats, "render_evaluation_verified": True}
-        if stats["invalid_faces"] or stats["isolated_vertices"] or stats["boundary_edges"] or stats["nonmanifold_edges"]:
-            raise ReferenceError(f"{key} contract does not form a closed valid base mesh: {stats}")
+        require_mesh_health(stats)
         bounds = contract[key]["bounds"]
         if any(not bounds[j][0] <= p[j] <= bounds[j][1] for p in mesh.vertices for j in range(3)):
             raise ReferenceError(f"{key} samples exceed their workspace bounds")

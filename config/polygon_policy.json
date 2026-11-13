@@ -1,5 +1,5 @@
 {
-  "target_triangle_range": [16000, 30000],
+  "target_triangle_range": [16000, 24000],
   "max_total_triangles": 30000,
   "warning_ratio": 0.8,
   "max_ring_samples": 128,
