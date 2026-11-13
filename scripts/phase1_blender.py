@@ -19,8 +19,8 @@ from phase1_checkpoint import publish, materialize, checkpoint_path
 from phase1_regions import capture, resolve
 from phase1_workflow import BUILD_START, BLOCKOUT, REVIEW_NEXT
 
-from phase1_contract import (load, write_new, ensure_json, replace_json, digest, verify_sources,
-                             validate_contract, transition, STATES)
+from phase1_contract import (load, write_new, ensure_json, digest, verify_sources,
+                             validate_contract, transition)
 from phase1_geometry import Mesh, body_mesh, head_mesh, mesh_stats, require_mesh_health, junction_metrics
 from phase1_budget import policy, summarize, require_budget
 from reference_common import ReferenceError, VIEWS
@@ -70,10 +70,9 @@ def context(session):
     state = load(session / "state.json")
     if not state.get("checkpoint"):
         raise ReferenceError("Initialize a checkpoint-backed session before continuing")
-    if state.get("checkpoint"):
-        checkpoint_path(session, state)
-        if bpy.context.scene.get("p1_generation") != state["checkpoint"]["file"]:
-            raise ReferenceError("Scene is not the committed generation; run recover_working")
+    checkpoint_path(session, state)
+    if bpy.context.scene.get("p1_generation") != state["checkpoint"]["file"]:
+        raise ReferenceError("Scene is not the committed generation; run recover_working")
     if state["status"] != "ACTIVE":
         raise ReferenceError(f"Session halted: {state['status']}")
     current = snapshot_phase0()
@@ -560,11 +559,6 @@ def submit_review(session, evidence_folder, review_path):
             raise ReferenceError("Required actual meshes are missing")
         for stats in metrics.values():
             require_mesh_health(stats)
-            if (stats["boundary_edges"] or stats["nonmanifold_edges"] or stats["invalid_faces"]
-                    or stats["isolated_vertices"] or stats["duplicate_vertices"] or stats["duplicate_faces"]
-                    or stats["inconsistent_winding_edges"] or stats["nonmanifold_vertices"]
-                    or stats["components"] != 1 or stats["signed_volume"] <= 0):
-                raise ReferenceError("Mesh health blocks PASS")
     candidate = transition(state, target, review=review, evidence=binding)
     ensure_json(folder / "findings.json", review)
     candidate = commit_model(session, state, candidate)

@@ -1,18 +1,5 @@
 # Phase 1 polygon budget
 
-## Analysis before changes
-
-| Location | Observed cause or gap | Impact | Change |
-| --- | --- | --- | --- |
-| `phase1_geometry.loft` | Arbitrarily many supplied rings/samples | Dense contracts can allocate unnecessary geometry | Preflight each loft before construction |
-| `phase1_contract.validate_contract` | No aggregate triangle policy | A valid closed mesh may exceed the intended budget | Sum actual constructed face tessellation sizes before acceptance |
-| `phase1_blender.validate_scene` | Only original vertices/faces; no triangle totals | Cannot report evaluated growth or budget | Blender loop-triangle counts for original and evaluated data, per-object and semantic region diagnostics |
-| `submit_review`, `report` | No budget gate or policy evidence | Reviewer PASS could accept excessive density | Freshness-bound budget evidence and mandatory PASS gate |
-| `context`, `build_region`, `refine_topology` | Modifiers already forbidden; builder refuses duplicate named meshes; refinement recalculates normals only | No observed automatic subdivision/remesh accumulation | Preserve these protections; do not invent a modifier-generation defect |
-
-No real model was available for profiling, so excessive density in a particular
-character is not established. The confirmed problem was missing guardrails.
-
 ## Policy and planning
 
 `config/polygon_policy.json` is the single source of defaults. Call
@@ -73,7 +60,7 @@ unnecessary samples/loops in the measured plan or remove unintended external
 modifiers. No automatic optimization or geometry-changing fallback is performed.
 The existing local rework path only moves vertices; it cannot reduce topology.
 If regeneration is needed, use a new replanned session preserving the old one.
-Existing bounded rework (two attempts then REPLAN) remains unchanged. Stop if
+Position-only REWORK allows two attempts before REPLAN; findings that require topology changes trigger REPLAN immediately. Stop if
 reducing density would damage facial contours, proportions or joint loops.
 
 Independent Reviewer must rerun `validate_scene()` through Blender, compare it
@@ -85,12 +72,8 @@ Body/Head → inspect `metrics.json.polygon_budget` and object counts → compar
 front/back/side overlays and face/neck/joints → submit the independent review.
 PASS requires acceptable visual checks, mesh health and budget within the limit.
 
-## Validation scope
+## Verification and limits
 
-The original budget change passed 98 unit/regression tests (`python -m unittest discover -s tests -q`);
-Python compilation and whitespace checks passed. Pure tests cover warning/excess boundaries, changed settings, aggregate contracts,
-ring limits, n-gons, separate/hidden meshes, render-verification blocking and
-duplicate faces. Existing Phase 0/1 regression tests also run.
-Actual Blender/MCP integration and resemblance to the user's reference images
-are **NOT RUN / UNVERIFIED** in this implementation session. Runtime reports
-record actual Blender host execution without inferring the MCP transport.
+Unit and synthetic Blender tests verify limits, tessellation counting, evaluated mesh checks, and stale-evidence blocking. The current commands and status are in [Phase 1 validation](phase1-validation.md).
+
+An in-budget mesh is not automatically anatomically correct. Four-view reference likeness, smooth junctions and global self-intersections still require actual character review.
