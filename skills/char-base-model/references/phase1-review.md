@@ -103,3 +103,20 @@ separate from a reference-matched character result. List the top 1–3 concrete
 remaining improvements and the output paths. Do not label the run COMPLETE just
 because unit tests passed.
 
+
+## Junction and density review
+
+Inspect both hip shelves/crotch transitions and shoulder/underarm flow in four
+overlays and both obliques. Compare calf width and knee/ankle transition on each
+side; inspect pelvic/thigh depth in both profiles and neck contact after Head.
+Use current `junctions`, `folded_quads`, `min_quad_normal_cosine`, and
+`region_density` as supporting diagnostics. `planned_junctions` is generation
+metadata only; `planned_sections` describes accepted ring samples, not later
+local edits. Geometry PASS never replaces these visual checks. The constructor
+rejects detected folds/crossings, but coplanar contact, adjacent-face collision,
+global self-intersection and anatomical shelves still require visual inspection.
+
+For a patch/ring/connectivity change mark the finding `change_type: "topology"`
+and REPLAN; use `position` only for a topology-preserving local edit. A structural
+failure should not spend two futile vertex-edit rounds. A sequential self-review
+must identify itself as such; do not call it independent-agent validation.

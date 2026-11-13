@@ -1,4 +1,16 @@
-# Phase 1 implementation validation — 2026-11-07
+# Phase 1 validation updates
+
+## 2026-11-13: midpoly junction changes
+
+See [change review and reproducible retest](phase1-midpoly-review.md). The current
+suite covers explicit correspondence, measured transitions, per-view sections,
+immutable new-session REPLAN and runtime diagnostics. A local Blender 4.3.2
+synthetic API smoke test is available in `tests/blender_midpoly_smoke.py`.
+This is separate from actual Blender MCP / reference-matched character testing,
+which remains **NOT RUN / UNVERIFIED**. The historical report below describes
+its original execution environment and test count, not the current environment.
+
+## Historical implementation validation — 2026-11-07
 
 ## Outcome
 

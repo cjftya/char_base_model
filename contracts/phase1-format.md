@@ -96,3 +96,28 @@ Every non-default override requires `exception_reason`. Keep the accepted contra
 immutable; policy changes require replanning. Record a dynamic region density
 plan in `body.source_notes` and `head.source_notes` before generating samples.
 Reference resemblance and joint/facial loops take priority over filling a budget.
+
+
+## Optional Body junction and section fields
+
+A limb may add `transition_rings` (explicit rings before `rings`) and a nonempty
+`transition_note`. Combined rings share one sample count and one density limit.
+At least two ordinary rings remain required. `boundary_offset` is a zero-based
+cyclic offset applied to every ring in the limb; it requires `mapping_note`.
+The constructor never reverses or mirrors samples automatically. Invalid local
+winding/folds/crossings block generation even with an explicit offset.
+
+`body.measured_sections` is an array of `{region, ring_index, note, views}`.
+Region is torso or a named limb; `ring_index` addresses ordinary rings, excluding
+transitions. `views` has front/back/left/right, each `{min, max, z}` in world
+metres. Front/back measure X, left/right measure Y. Preserve each direction and
+each leg separately, including disagreements; no mean or inferred symmetry.
+`phase1_analysis.measure_section` converts calibrated pixel spans to this format.
+`section_errors` compares a supplied ring before/after changes; these are sample
+extents and do not prove a complete silhouette or exact plane-surface section.
+
+Review findings optionally include `change_type: position|topology`. Existing
+findings default to position. Topology REWORK escalates immediately to REPLAN.
+`phase1_replan.prepare_replan` creates a new session with unaccepted `drafts/`,
+read-only `parent_snapshot/` copies and `replan.json` source/parent fingerprints.
+The failed session is never modified; the new run restarts every gate.

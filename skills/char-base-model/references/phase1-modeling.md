@@ -95,8 +95,9 @@ starting a new, explicitly replanned session. Local vertex corrections use
 - Choose shoulder/underarm and bilateral hip/crotch patches with care. The helper
   cannot determine an anatomical junction from arbitrary face numbers. If a
   junction pinches or self-intersects, Reviewer must return REWORK/REPLAN.
-- Use enough samples for shape first. Do not pre-emptively enforce a low polygon
-  cap. All final dimensions come from the measured contract.
+- Use enough samples for measured shape, within the 30,000 evaluated-triangle
+  total limit. Body/Head allocations of roughly 8,000–12,000 each are optional
+  planning references, never minimums. All dimensions come from the measured contract.
 
 Invoke `build_region(session, 'body')`. Observe the actual mesh, run
 `collect_evidence`, and pass Body Shape Gate before building Head.
@@ -184,3 +185,65 @@ Polygon region lookup tolerates polygon reordering and winding reversal. A
 changed vertex membership is a topology revision and deliberately blocks local
 position edits. Major retopology still needs explicit replanning.
 
+
+## Junction measurement and explicit REPLAN
+
+For shoulders and hips, inspect the deleted patch boundary and root-ring
+correspondence with `phase1_junction.correspondence(host_points, root_points)`.
+The report includes the nearest cyclic offset, bridge lengths, reversed winding,
+folded quads and crossing bridge edges. Nothing is auto-mirrored or reversed.
+Fix the draft ring order or explicitly supply `boundary_offset` plus `mapping_note`;
+the offset rotates **all** transition and limb rings together. A non-nearest
+mapping requires a documented explicit choice, and still cannot bypass fold,
+winding, collapsed-edge or crossing checks. These are conservative local tests,
+not proof of global self-intersection freedom or smooth anatomical flow.
+
+Optional limb `transition_rings` precede `rings` and require `transition_note`
+identifying image rows, contour/depth observations and intended improvement.
+Supply explicit nonuniform measured coordinates; there is no automatic
+interpolation/smoothing. All rings in this branch must have the same sample
+count as its host boundary; transitions plus ordinary rings share the existing
+128-ring ceiling. Keep at least two ordinary limb rings. Recompute evolving
+`patch_faces` after topology changes. Patches must only select remaining torso
+faces, never previously attached limbs or junctions.
+
+Measure waist/pelvis/thigh/knee/calf/ankle spans separately for both legs.
+`phase1_analysis.measure_section(views, observations, region=..., ring_index=...,
+note=...)` accepts four calibrated `[left_px, right_px, row_px]` observations.
+Use actual camera directions for `views`, retaining original filename mapping
+in direction evidence (including left/right filename swaps if observed).
+Store results in optional `body.measured_sections`; ring indices refer to
+ordinary `rings` (or `torso`) and exclude transition rings. Compare
+`section_errors(section, ring)` before/after changes for per-view width/depth,
+height and perimeter errors. It compares sample extents, not an exact plane
+intersection. Do not average opposing views or mirror one leg to fill the other.
+Reject unsupported added loops: compare four silhouettes, section errors,
+bridge defects and six-view appearance; retain extra density only with a
+measured benefit. `planned_sections` in metrics describes the accepted plan,
+not later edited geometry; take fresh measurements after local edits.
+
+A finding needing a new patch, ring count or connectivity uses
+`change_type: "topology"` and verdict REPLAN. A topology finding submitted as
+REWORK is escalated to REPLAN without spending position-edit retries.
+`change_type: "position"` (legacy default) keeps the existing two-rework limit.
+
+From a halted session call:
+
+```python
+from phase1_replan import prepare_replan
+new_session = prepare_replan(
+    failed_session, revised_contract_path, revised_landmarks_path,
+    reason="Measured hip/shoulder junction redesign", destination=new_absolute_folder)
+```
+
+This verifies parent sources, accepted hashes and committed checkpoint, preserves
+all parent files, and creates a fresh REFERENCES_READY session from original
+Phase 0. It writes `replan.json` lineage, `parent_snapshot/`, and `drafts/` files;
+it accepts no landmarks and inherits no review PASS. Missing/legacy checkpoint
+or altered source blocks this helper; preserve the old artifacts and use the
+normal Phase 0 entry workflow explicitly instead of editing old state.
+Preserve unsaved edits, open the original Phase 0 source through MCP, run
+`initialize_working(new_session)`, then `accept_landmarks(new_session,
+new_session/'drafts/model_contract.json', new_session/'drafts/landmarks.json')`.
+Build Body and collect a fresh shape review. Only after Body PASS accept/build
+Head. Keep old/new overlays for comparison; never relabel the failed run COMPLETE.

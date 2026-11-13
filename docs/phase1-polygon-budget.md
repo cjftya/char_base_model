@@ -20,8 +20,7 @@ character is not established. The confirmed problem was missing guardrails.
 The optional contract field accepts partial overrides and requires a nonempty
 `exception_reason` for changes. Never silently modify accepted contract files.
 
-The default reference range is 16,000–30,000 triangles (roughly 8,000–15,000
-quads); it is not a minimum. Warn at 80% of the maximum; exactly the maximum
+The default reference range is 16,000–24,000 triangles; it is not a minimum. Warn at 80% of the maximum; exactly the maximum
 remains acceptable with warning, above it blocks PASS. Ring sample and ring count
 limits are each 128 per loft: generous safety ceilings for measured lofts,
 not suggested densities or per-part allocations. They are configurable with a reason.
@@ -88,7 +87,7 @@ PASS requires acceptable visual checks, mesh health and budget within the limit.
 
 ## Validation scope
 
-98 unit/regression tests passed (`python -m unittest discover -s tests -q`);
+The original budget change passed 98 unit/regression tests (`python -m unittest discover -s tests -q`);
 Python compilation and whitespace checks passed. Pure tests cover warning/excess boundaries, changed settings, aggregate contracts,
 ring limits, n-gons, separate/hidden meshes, render-verification blocking and
 duplicate faces. Existing Phase 0/1 regression tests also run.
